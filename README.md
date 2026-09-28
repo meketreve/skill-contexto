@@ -1,52 +1,52 @@
 # skill-contexto
 
-Skill de contexto enxuto em **3 tiers** para Claude Code e opencode. O script gera o esqueleto sem gastar token; o modelo completa só o que precisa de juízo.
+Lean project context in **3 tiers** for Claude Code and opencode. The script scaffolds everything mechanical with zero tokens; the model fills in only what needs judgment.
 
 ## Tiers
 
-| Tier | Quando | Cria |
+| Tier | When | Creates |
 |---|---|---|
-| 1 | one-shot, <20 arquivos | `MAP.md` |
-| 2 | 50–200 arquivos ou 2+ sessões | + `STATUS.md`, `LEARNINGS.md`, `TODO.md` (se 3+ passos sem tracker) |
-| 3 | monorepo / equipe | + `BUGS.md` sob demanda, `WORKFLOW.md` se adotado |
+| 1 | one-shot, <20 files | `MAP.md` |
+| 2 | 50–200 files or 2+ sessions | + `STATUS.md`, `LEARNINGS.md`, `TODO.md` (3+ steps, no tracker) |
+| 3 | monorepo / team | + on-demand `BUGS.md`, `WORKFLOW.md` if adopted |
 
-Detalhe em `reference/tiers.md`.
+Detail in `reference/tiers.md`. Bundled `templates/` are PT-BR (project memory stays in the user's language); all instruction layers are English.
 
-## Uso rápido
+## Quick use
 
 ```bash
-./scripts/init.sh --tier auto   # dentro do projeto
+./scripts/init.sh --tier auto   # inside the project
 ./scripts/init.sh --tier 2 --yes
 ```
 
-## Instalar
+## Install
 
 Claude Code (skill):
 ```bash
 ln -s "$PWD" ~/.claude/skills/contexto
 ```
 
-opencode (skill + comando `/contexto`):
+opencode (skill + `/contexto` command):
 ```bash
 mkdir -p ~/.config/opencode/skills ~/.config/opencode/commands
 ln -s "$PWD" ~/.config/opencode/skills/contexto
 ln -s "$PWD/commands/contexto.md" ~/.config/opencode/commands/contexto.md
-# sair e reiniciar o opencode
+# quit and restart opencode
 ```
 
 ## Layout
 
 ```
-SKILL.md              # a skill (fina: decide tier, chama script, completa 20%)
-scripts/init.sh       # esqueleto sem token (detecção + blocos auto + imports)
-templates/            # MAP STATUS TODO LEARNINGS (+ BUGS WORKFLOW p/ tier 3)
-reference/tiers.md    # tiers, formatos, imports, tetos (carga lazy)
-commands/contexto.md  # comando /contexto p/ opencode
+SKILL.md              # the skill (thin: picks tier, runs script, fills 20%)
+scripts/init.sh       # zero-token scaffold (detection + auto blocks + imports)
+templates/            # MAP STATUS TODO LEARNINGS (+ BUGS WORKFLOW for tier 3)
+reference/tiers.md    # tiers, formats, imports, budgets (lazy load)
+commands/contexto.md  # /contexto command for opencode
 ```
 
-## Convenções
+## Conventions
 
-- Frontmatter `updated/tier` (script) + blocos `<!-- auto:start -->` (só o script toca).
-- Uma linha por fato com tags: `- [2026-09-28] [pytest] fato — consequência`.
-- `BUGS.md` nunca é importado — `grep` pela mensagem de erro.
-- Tetos: STATUS/TODO 60 linhas, LEARNINGS 100, MAP 60.
+- Frontmatter `updated/tier` (script-owned) + `<!-- auto:start -->` blocks (script-only).
+- One line per fact with tags: `- [2026-09-28] [pytest] fact — consequence`.
+- `BUGS.md` is never imported — `grep` the error message.
+- Budgets: STATUS/TODO 60 lines, LEARNINGS 100, MAP 60.

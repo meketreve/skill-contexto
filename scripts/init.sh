@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# init.sh — esqueleto de contexto em 3 tiers, sem gastar token.
-# Uso: init.sh [--tier auto|1|2|3] [--dir PROJETO] [--yes]
-# Só cria o que falta; nunca sobrescreve conteúdo manual.
-# Blocos <!-- auto:start --> … <!-- auto:end --> pertencem ao script.
+# init.sh — 3-tier context scaffold, zero tokens spent.
+# Usage: init.sh [--tier auto|1|2|3] [--dir PROJECT] [--yes]
+# Only creates missing files; never overwrites manual content.
+# <!-- auto:start --> … <!-- auto:end --> blocks belong to the script.
 set -euo pipefail
 
 TIER="auto"
@@ -10,8 +10,8 @@ DIR="."
 ASSUME="${CONTEXTO_ASSUME_MULTISESSAO:-}"
 
 usage() {
-  echo "uso: init.sh [--tier auto|1|2|3] [--dir DIR] [--yes]"
-  echo "  --yes  não pergunta nada (auto decide 1 sessão p/ tier 1-2)"
+  echo "usage: init.sh [--tier auto|1|2|3] [--dir DIR] [--yes]"
+  echo "  --yes  never prompt (auto assumes single session for the tier 1-2 tie)"
 }
 
 while [ $# -gt 0 ]; do
@@ -20,7 +20,7 @@ while [ $# -gt 0 ]; do
     --dir) DIR="${2:-.}"; shift 2 ;;
     --yes) ASSUME="0"; shift ;;
     -h|--help) usage; exit 0 ;;
-    *) echo "arg desconhecido: $1" >&2; usage; exit 1 ;;
+    *) echo "unknown arg: $1" >&2; usage; exit 1 ;;
   esac
 done
 
@@ -55,12 +55,12 @@ resolve_tier() {
   esac
   if [ "$mono" = 1 ] || [ "${n:-0}" -gt 200 ]; then echo 3; return; fi
   if [ "${n:-0}" -ge 20 ]; then echo 2; return; fi
-  # <20 arquivos: desempata por duração
+  # <20 files: break the tie by duration
   if [ "$ASSUME" = "1" ]; then echo 2; return; fi
   if [ "$ASSUME" = "0" ]; then echo 1; return; fi
   if [ -t 0 ]; then
-    read -r -p "vai durar mais de uma sessão? (s/n) " r
-    [ "$r" = "s" ] && echo 2 || echo 1
+    read -r -p "will this last more than one session? (y/n) " r
+    [ "$r" = "y" ] && echo 2 || echo 1
   else
     echo 1
   fi
@@ -86,7 +86,7 @@ stamp_frontmatter() { # file tier
   fi
 }
 
-# Substitui o bloco auto no arquivo pelo conteúdo do stdin.
+# Replaces the auto block in the file with stdin content.
 replace_auto() { # file
   local f="$1" tmp
   tmp="$(mktemp)"
@@ -163,7 +163,7 @@ ensure_claude_imports() { # tier
   [ -f "$DIR/.claude/context/WORKFLOW.md" ] && want+=("@.claude/context/WORKFLOW.md")
   if [ ! -f "$claude" ]; then
     { echo "# Projeto"; echo ""; for w in "${want[@]}"; do echo "$w"; done; } > "$claude"
-    echo "criado $claude"
+    echo "created $claude"
     return
   fi
   for w in "${want[@]}"; do
@@ -171,7 +171,7 @@ ensure_claude_imports() { # tier
   done
 }
 
-# --- arquivos por tier ---
+# --- files per tier ---
 copy_missing "$TPL/MAP.md" "$CTX/MAP.md"
 stamp_frontmatter "$CTX/MAP.md" "$TIER_N"
 map_cmd_block | replace_auto "$CTX/MAP.md"
@@ -188,15 +188,15 @@ fi
 
 if [ "$TIER_N" -ge 3 ]; then
   copy_missing "$TPL/BUGS.md" "$CTX/BUGS.md"
-  # WORKFLOW.md só se o usuário já tiver processo — não criar vazio.
+  # WORKFLOW.md only if the user already has a process — never create blank.
   [ -f "$CTX/WORKFLOW.md" ] && stamp_frontmatter "$CTX/WORKFLOW.md" "$TIER_N" || true
 fi
 
 ensure_claude_imports "$TIER_N"
 
 echo "---"
-echo "criados/verificados em $CTX:"
+echo "created/verified in $CTX:"
 ls "$CTX"
 echo "---"
-echo "em branco p/ completar: MAP (fluxos), STATUS (estado/próxima fase)"
-[ "$TIER_N" -ge 2 ] && echo "TODO está active: false — ativar quando houver tarefa de 3+ passos."
+echo "left blank to complete: MAP (flows), STATUS (state/next phase)"
+[ "$TIER_N" -ge 2 ] && echo "TODO is active: false — enable for a 3+ step task."

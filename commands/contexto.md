@@ -1,22 +1,22 @@
 ---
-description: Monta contexto enxuto do projeto em 3 tiers (MAP/STATUS/TODO/LEARNINGS) com esqueleto via script sem gastar token
+description: Bootstrap lean project context in 3 tiers (MAP/STATUS/TODO/LEARNINGS) with a zero-token script scaffold
 ---
 
 # /contexto — $ARGUMENTS
 
-1. Rode o esqueleto sem token (caminho da skill instalada; ajuste se for outro):
+1. Run the zero-token scaffold (path of the installed skill; adjust if different):
 ```bash
 ~/.config/opencode/skills/contexto/scripts/init.sh --tier auto $ARGUMENTS
 # claude code: ~/.claude/skills/contexto/scripts/init.sh --tier auto $ARGUMENTS
 ```
-Aceita `--tier 1|2|3` para forçar e `--yes` para não perguntar.
+Accepts `--tier 1|2|3` to force and `--yes` to never prompt.
 
-2. Com o resultado do script em mãos, complete SÓ o que precisa de juízo (regras em `SKILL.md` da skill `contexto`):
-- `MAP.md`: fluxos `X → Y → Z`, o não-óbvio. Comandos o script já extraiu.
-- `STATUS.md`: estado atual (2–4 linhas) + próxima fase com ponto de partida.
-- `TODO.md`: ativar (`active: true`) só se houver tarefa de 3+ passos sem tracker.
-- `LEARNINGS.md`: uma linha por fato `- [AAAA-MM-DD] [tag] fato — consequência`.
+2. With the script output in hand, fill in ONLY what needs judgment (`contexto` skill `SKILL.md` rules, in the user's language):
+- `MAP.md`: `X → Y → Z` flows, the non-obvious. Commands were already extracted.
+- `STATUS.md`: current state (2–4 lines) + next phase with entry point.
+- `TODO.md`: set (`active: true`) only for a 3+ step task without tracker.
+- `LEARNINGS.md`: one line per fact `- [YYYY-MM-DD] [tag] fact — consequence`.
 
-3. Nunca edite blocos `<!-- auto:start -->`; nunca crie arquivo que o tier não pede; respeite os tetos (STATUS/TODO 60, LEARNINGS 100).
+3. Never edit `<!-- auto:start -->` blocks; never create a file the tier doesn't call for; respect budgets (STATUS/TODO 60, LEARNINGS 100).
 
-4. Termine listando o criado e o que ficou em branco.
+4. Finish by listing what was created and what was left blank.

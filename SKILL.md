@@ -1,52 +1,54 @@
 ---
 name: contexto
-description: Monta contexto enxuto do projeto em 3 tiers (MAP/STATUS/TODO/LEARNINGS/BUGS/WORKFLOW) com esqueleto via script sem gastar token. Use quando o usuário pedir para preparar/iniciar o contexto, montar MAP, STATUS ou organizar memória do projeto.
+description: Bootstraps lean project context in 3 tiers (MAP/STATUS/TODO/LEARNINGS/BUGS/WORKFLOW) with a zero-token script scaffold. Use when the user asks to prepare/bootstrap project context, montar/iniciar o contexto, build a MAP/STATUS, or organize project memory.
 ---
 
-# Contexto em 3 tiers
+# Tiered project context
 
-Fluxo: **script primeiro (sem token), modelo depois (só o que precisa de juízo).**
+Flow: **script first (zero tokens), model second (judgment only).**
 
-## 1. Decidir o tier
+## 1. Pick the tier
 
-Rodar o script com detecção automática (ele conta arquivos, detecta monorepo e pergunta se o trabalho dura mais de uma sessão):
+Run the script with auto-detection (it counts files, detects monorepos, and asks whether the work spans more than one session):
 
 ```bash
 <skill-dir>/scripts/init.sh --tier auto
 ```
 
-Regra (detalhe em `reference/tiers.md`):
+Rules (detail in `reference/tiers.md`):
 
-- **Tier 1 — leve/one-shot, <20 arquivos:** só `MAP.md` mínimo.
-- **Tier 2 — médio/multi-sessão, 50–200 arquivos:** soma `STATUS.md` + `LEARNINGS.md` (+ `TODO.md` se a tarefa tem 3+ passos sem issue tracker).
-- **Tier 3 — grande/monorepo/equipe:** soma `TODO` por pacote, `WORKFLOW.md` se houver processo adotado, `BUGS.md` desmembrado só quando LEARNINGS passar de ~10 entradas de bug.
+- **Tier 1 — light/one-shot, <20 files:** minimal `MAP.md` only.
+- **Tier 2 — medium/multi-session, 50–200 files:** adds `STATUS.md` + `LEARNINGS.md` (+ `TODO.md` if the task has 3+ steps and no issue tracker).
+- **Tier 3 — large/monorepo/team:** adds per-package `TODO`, `WORKFLOW.md` if a process was adopted, `BUGS.md` split out only once LEARNINGS holds ~10+ bug entries.
 
-Nunca criar arquivo que o tier não pede. Decidir **não** criar é parte do trabalho.
+Never create a file the tier doesn't call for. Deciding **not** to create is part of the job.
 
-## 2. O que o script já fez (não repetir)
+## 2. What the script already did (don't redo)
 
-O `init.sh` só cria o que falta, nunca sobrescreve, e preenche os blocos `<!-- auto:start -->` (data, `git log`, comandos do manifesto, `ls` nível 1) + garante os imports no `CLAUDE.md`. Não refazer isso à mão.
+`init.sh` only creates missing files, never overwrites, and fills the `<!-- auto:start -->` blocks (date, `git log`, manifest commands, top-level `ls`) + ensures the imports in `CLAUDE.md`. Don't redo that by hand.
 
-## 3. O que o modelo completa (só os ~20% manuais)
+## 3. What the model fills in (only the ~20% needing judgment)
 
-- `MAP.md`: fluxos principais (`X → Y → Z`) e o que não é óbvio pelo nome. Comandos o script já extraiu.
-- `STATUS.md`: "estado atual" em 2–4 linhas e "próxima fase" com arquivo/ponto de partida. O bloco auto já tem `git log`/`git status` brutos.
-- `TODO.md`: só se ativo (frontmatter `active: true`).
-- `LEARNINGS.md`: uma linha por fato no formato `- [AAAA-MM-DD] [tag] fato — consequência`. Só registrar correção real, pegadinha de versão/API/CI ou decisão com porquê.
-- `BUGS.md` (tier 3): um bloco por bug com a mensagem de erro literal (para o `grep` achar).
-- `WORKFLOW.md` (tier 3): só se o usuário adotou um processo explícito.
+Write in the user's language (the bundled templates are PT-BR; keep the project's language):
 
-## 4. Política de imports (não importar tudo)
+- `MAP.md`: main flows (`X → Y → Z`) and whatever isn't obvious from names. Commands were already extracted by the script.
+- `STATUS.md`: "current state" in 2–4 lines and "next phase" with file/entry point. The auto block already holds raw `git log`/`git status`.
+- `TODO.md`: only when active (frontmatter `active: true`).
+- `LEARNINGS.md`: one line per fact as `- [YYYY-MM-DD] [tag] fact — consequence`. Only real corrections, version/API/CI gotchas, or decisions with rationale.
+- `BUGS.md` (tier 3): one block per bug with the literal error message (so `grep` finds it).
+- `WORKFLOW.md` (tier 3): only if the user adopted an explicit process.
 
-- Sempre: `@.claude/context/STATUS.md` (tier 2+) e `@.claude/context/MAP.md`.
-- `LEARNINGS.md`: importado no tier 2+; no tier 1, consultar sob demanda via grep.
-- `TODO.md`: importado só enquanto `active: true`.
-- `BUGS.md`: nunca importado — `grep` pela mensagem de erro quando precisar.
-- `WORKFLOW.md`: importado só se existir.
+## 4. Import policy (don't import everything)
 
-No opencode, o `CLAUDE.md` da raiz é lido como fallback global; em alternativa, declarar os mesmos arquivos no campo `instructions` do `opencode.json`.
+- Always: `@.claude/context/STATUS.md` (tier 2+) and `@.claude/context/MAP.md`.
+- `LEARNINGS.md`: imported at tier 2+; at tier 1, consult on demand via grep.
+- `TODO.md`: imported only while `active: true`.
+- `BUGS.md`: never imported — `grep` the error message when needed.
+- `WORKFLOW.md`: imported only if it exists.
 
-## 5. Tetos (orcamento de contexto)
+In opencode, root `CLAUDE.md` is read as a global fallback; alternatively, declare the same files in the `instructions` field of `opencode.json`.
 
-- `STATUS.md` / `TODO.md`: 60 linhas max. `LEARNINGS.md`: 100. Passou disso, resumir em 1 linha ou apagar — o `git log` é a fonte da verdade.
-- Terminar com lista curta do que foi criado e do que ficou em branco para o usuário completar.
+## 5. Budgets (context spending)
+
+- `STATUS.md` / `TODO.md`: 60 lines max. `LEARNINGS.md`: 100. Past that, summarize into 1 line or delete — `git log` is the source of truth.
+- Finish with a short list of what was created and what was left blank for the user.
