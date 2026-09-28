@@ -1,0 +1,25 @@
+name: lint
+on:
+  push:
+  pull_request:
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+      - name: Syntax
+        run: bash -n scripts/init.sh && bash -n scripts/install.sh
+      - name: ShellCheck
+        run: shellcheck -S warning scripts/init.sh scripts/install.sh
+      - name: Smoke test (tiers 1–2, both langs)
+        run: |
+          rm -rf /tmp/smoke-pt /tmp/smoke-en
+          mkdir -p /tmp/smoke-pt /tmp/smoke-en
+          ./scripts/init.sh --tier 1 --lang pt --yes --dir /tmp/smoke-pt
+          ./scripts/init.sh --tier 2 --lang en --yes --dir /tmp/smoke-en
+          test -f /tmp/smoke-pt/.claude/context/MAP.md
+          test -f /tmp/smoke-en/.claude/context/STATUS.md
+          test -f /tmp/smoke-en/.claude/context/TODO.md
+          grep -q "Project map" /tmp/smoke-en/.claude/context/MAP.md

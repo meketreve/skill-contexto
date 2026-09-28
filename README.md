@@ -7,16 +7,16 @@ Lean project context in **3 tiers** for Claude Code and opencode. The script sca
 | Tier | When | Creates |
 |---|---|---|
 | 1 | one-shot, <20 files | `MAP.md` |
-| 2 | 50–200 files or 2+ sessions | + `STATUS.md`, `LEARNINGS.md`, `TODO.md` (3+ steps, no tracker) |
+| 2 | 20–200 files or 2+ sessions | + `STATUS.md`, `LEARNINGS.md`, `TODO.md` (3+ steps, no tracker) |
 | 3 | monorepo / team | + on-demand `BUGS.md`, `WORKFLOW.md` if adopted |
 
-Detail in `reference/tiers.md`. Bundled `templates/` are PT-BR (project memory stays in the user's language); all instruction layers are English.
+Detail in `reference/tiers.md`. Templates ship in PT-BR (`templates/`) and English (`templates.en/`); `--lang` picks (`auto` follows `$LANG`).
 
 ## Quick use
 
 ```bash
 ./scripts/init.sh --tier auto   # inside the project
-./scripts/init.sh --tier 2 --yes
+./scripts/init.sh --tier 2 --lang en --yes
 ```
 
 ## Install
@@ -27,12 +27,12 @@ One-liner:
 git clone https://github.com/meketreve/skill-contexto.git && ./skill-contexto/scripts/install.sh
 ```
 
-`install.sh` symlinks the skill into every harness dir it knows (symlink = tracks `git pull`). Useful flags: `--only claude,opencode,agents`, `--copy` (frozen copy instead of link), `--force` (replace existing), `--project` (copies into `./.claude` + `./.opencode` for team sharing — commit them), `--uninstall`, `--list`.
+`install.sh` symlinks the skill into the harnesses it detects on your machine (symlink = tracks `git pull`). Useful flags: `--only claude,opencode,agents` (override detection), `--copy` (frozen copy instead of link), `--force` (replace existing), `--project` (copies into `./.claude` + `./.opencode` for team sharing — commit them), `--uninstall`, `--list`.
 
 | Harness | Skill path | Slash command | Notes |
 |---|---|---|---|
-| Claude Code | `~/.claude/skills/contexto` | n/a (skill auto-triggers) | project-level: `.claude/skills/contexto` |
-| opencode | `~/.config/opencode/skills/contexto` | `~/.config/opencode/commands/contexto.md` → `/contexto` | also auto-loads `~/.claude/skills` and `~/.agents/skills`; restart opencode after install |
+| Claude Code | `~/.claude/skills/contexto` | n/a (skill auto-triggers) | project-level: `.claude/skills/contexto`; installed only if detected |
+| opencode | `~/.config/opencode/skills/contexto` | `/context` + `/contexto` (`commands/context.md`, `commands/contexto.md` — aliases) | also auto-loads `~/.claude/skills` and `~/.agents/skills`; restart opencode after install; installed only if detected |
 | Other Agent Skills harnesses | `~/.agents/skills/contexto` | — | any harness that discovers `SKILL.md` (see `install.sh --list`) |
 
 Symlink or copy? Personal use → symlink (updates are one `git pull` away). Teams / pinned versions → `--copy` or `--project`, so the exact skill version travels with the repo.
@@ -47,11 +47,12 @@ No harness at all? The skill is pure bash + markdown. Clone it anywhere and run 
 
 ```
 SKILL.md              # the skill (thin: picks tier, runs script, fills 20%)
-scripts/init.sh       # zero-token scaffold (detection + auto blocks + imports)
+scripts/init.sh       # zero-token scaffold (detection + auto blocks + imports, --lang en|pt)
 scripts/install.sh    # links/copies the skill into your harnesses
-templates/            # MAP STATUS TODO LEARNINGS (+ BUGS WORKFLOW for tier 3)
+templates/            # PT-BR: MAP STATUS TODO LEARNINGS (+ BUGS WORKFLOW for tier 3)
+templates.en/         # English: same set
 reference/tiers.md    # tiers, formats, imports, budgets (lazy load)
-commands/contexto.md  # /contexto command for opencode
+commands/context.md + contexto.md  # /context + /contexto for opencode (aliases, keep in sync)
 ```
 
 ## Conventions

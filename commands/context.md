@@ -2,9 +2,9 @@
 description: Bootstrap lean project context in 3 tiers (MAP/STATUS/TODO/LEARNINGS) with a zero-token script scaffold
 ---
 
-# /contexto — $ARGUMENTS
+# /context — $ARGUMENTS
 
-<!-- Alias of context.md (same instructions, PT-BR name). Keep both files in sync. -->
+<!-- Alias of contexto.md (same instructions, English name). Keep both files in sync. -->
 
 1. Run the zero-token scaffold (path of the installed skill; adjust if different):
 ```bash

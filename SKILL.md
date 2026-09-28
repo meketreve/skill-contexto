@@ -15,10 +15,12 @@ Run the script with auto-detection (it counts files, detects monorepos, and asks
 <skill-dir>/scripts/init.sh --tier auto
 ```
 
+Add `--lang en` for English templates (`templates.en/`); default `auto` follows `$LANG` (`pt*` → PT-BR `templates/`, else English), overridable via `CONTEXTO_LANG`.
+
 Rules (detail in `reference/tiers.md`):
 
 - **Tier 1 — light/one-shot, <20 files:** minimal `MAP.md` only.
-- **Tier 2 — medium/multi-session, 50–200 files:** adds `STATUS.md` + `LEARNINGS.md` (+ `TODO.md` if the task has 3+ steps and no issue tracker).
+- **Tier 2 — medium/multi-session, 20–200 files:** adds `STATUS.md` + `LEARNINGS.md` (+ `TODO.md` if the task has 3+ steps and no issue tracker).
 - **Tier 3 — large/monorepo/team:** adds per-package `TODO`, `WORKFLOW.md` if a process was adopted, `BUGS.md` split out only once LEARNINGS holds ~10+ bug entries.
 
 Never create a file the tier doesn't call for. Deciding **not** to create is part of the job.
@@ -29,7 +31,7 @@ Never create a file the tier doesn't call for. Deciding **not** to create is par
 
 ## 3. What the model fills in (only the ~20% needing judgment)
 
-Write in the user's language (the bundled templates are PT-BR; keep the project's language):
+Write in the user's language (templates ship in PT-BR and English via `--lang`; keep the project's language):
 
 - `MAP.md`: main flows (`X → Y → Z`) and whatever isn't obvious from names. Commands were already extracted by the script.
 - `STATUS.md`: "current state" in 2–4 lines and "next phase" with file/entry point. The auto block already holds raw `git log`/`git status`.

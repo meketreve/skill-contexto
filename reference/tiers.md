@@ -5,13 +5,15 @@
 | Tier | When | Creates | Always imports |
 |---|---|---|---|
 | 1 — light | one-shot, <20 files, single session | minimal `MAP.md` | `MAP.md` |
-| 2 — medium | 50–200 files **or** 2+ sessions | + `STATUS.md`, `LEARNINGS.md`, `TODO.md` if 3+ steps without tracker | `STATUS + MAP + LEARNINGS` |
+| 2 — medium | 20–200 files **or** 2+ sessions | + `STATUS.md`, `LEARNINGS.md`, `TODO.md` if 3+ steps without tracker | `STATUS + MAP + LEARNINGS` |
 | 3 — large | monorepo (`packages/*/`, `apps/*/`, workspaces), team | + per-package `TODO`, `WORKFLOW.md` if adopted, `BUGS.md` once LEARNINGS >10 bugs | `STATUS + MAP`, rest lazy |
 
 Auto-detection (`scripts/init.sh --tier auto`):
 1. Counts files: `git ls-files | wc -l` (fallback: `find . -type f -not -path './.git/*' | wc -l`).
 2. Detects monorepo: `packages/*/`, `apps/*/` dirs, or `workspaces` in `package.json`, multi-package `[tool]`, `Cargo.toml` with `[workspace]`.
 3. `<20` files and no monorepo → suggests tier 1; `20–200` or multi-session → tier 2; monorepo or `>200` → tier 3. With `--tier auto` the script asks "will this last more than one session? (y/n)" to break the 1-vs-2 tie, unless `CONTEXTO_ASSUME_MULTISESSAO=1` / `=0`.
+
+Template language (`--lang auto|pt|en`, or `CONTEXTO_LANG`): `auto` follows `$LANG` (`pt*` → PT-BR `templates/`, anything else → `templates.en/`). The script's auto-block labels (table headers, dates) switch language too, so generated content always matches the template.
 
 ## File format
 
@@ -26,7 +28,7 @@ tier: 2
 
 - `TODO.md` adds `active: true|false` — import only while active.
 - `<!-- auto:start --> … <!-- auto:end -->` blocks belong to the script (date, `git log`, commands, `ls`). The model never edits inside them by hand; the script never touches anything outside them.
-- One line per fact, with greppable tags: `- [2026-09-28] [pytest] fact — consequence`. Fill in the user's language (bundled templates are PT-BR).
+- One line per fact, with greppable tags: `- [2026-09-28] [pytest] fact — consequence`. Fill in the user's language (templates ship in PT-BR and English).
 - `BUGS.md`: each block opens with `## YYYY-MM-DD — short title` and contains the literal error message.
 
 ## Imports (opencode and claude)
