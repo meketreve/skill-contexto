@@ -49,11 +49,25 @@ No harness at all? The skill is pure bash + markdown. Clone it anywhere and run 
 SKILL.md              # the skill (thin: picks tier, runs script, fills 20%)
 scripts/init.sh       # zero-token scaffold (detection + auto blocks + imports, --lang en|pt)
 scripts/install.sh    # links/copies the skill into your harnesses
+.githooks/pre-commit  # local checks mirroring CI (enable: git config core.hooksPath .githooks)
 templates/            # PT-BR: MAP STATUS TODO LEARNINGS (+ BUGS WORKFLOW for tier 3)
 templates.en/         # English: same set
 reference/tiers.md    # tiers, formats, imports, budgets (lazy load)
+reference/hooks.md    # optional hooks: git (recommended) + agent SessionStart/PostToolUse (opt-in)
 commands/context.md + contexto.md  # /context + /contexto for opencode (aliases, keep in sync)
 ```
+
+## Hooks
+
+Git (recommended, zero deps, mirrors CI):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Agent hooks are opt-in per project — see `reference/hooks.md`
+(Claude Code native `SessionStart` + `PostToolUse` reminder;
+opencode via Claude-compatible plugin; hooks remind, never auto-write).
 
 ## Conventions
 

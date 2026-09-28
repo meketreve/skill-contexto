@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# pre-commit — mirrors CI (lint.yml), zero dependencies.
+# Enable once per clone: git config core.hooksPath .githooks
+# What it checks: syntax, executable bit, templates PT/EN sync,
+# commands alias sync, frontmatter, whitespace errors.
+set -euo pipefail
+
+REPO="$(git rev-parse --show-toplevel)"
+fail=0
+warn() { echo "pre-commit: $*" >&2; }
+die() { warn "FAIL: $*"; fail=1; }
+ok() { echo "pre-commit: ok $*"; }
+
+# 1. Syntax
+for s in "$REPO/scripts/init.sh" "$REPO/scripts/install.sh"; do
+  bash -n "$s" || die "syntax error in ${s#$REPO/}"
+done
+ok "bash -n"
+
+# 2. Executable bit
+for s in scripts/init.sh scripts/install.sh .githooks/pre-commit; do
+  [ -x "$REPO/$s" ] || die "missing +x: $s (run: chmod +x $s)"
+done
+ok "+x"
+
+# 3. ShellCheck (skip if not installed — CI enforces)
+if command -v shellcheck >/dev/null 2>&1; then
+  shellcheck -S warning "$REPO/scripts/init.sh" "$REPO/scripts/install.sh" || die "shellcheck warnings"
+  ok "shellcheck"
+else
+  warn "skip shellcheck (not installed — CI will check)"
+fi
+
+# 4. templates/ vs templates.en/ — same file set
+if ! diff -q <(ls "$REPO/templates" | sort) <(ls "$REPO/templates.en" | sort) >/dev/null; then
+  die "templates/ and templates.en/ out of sync:"
+  diff <(ls "$REPO/templates" | sort) <(ls "$REPO/templates.en" | sort) >&2 || true
+else
+  ok "templates pt/en set"
+fi
+
+# 5. commands aliases — instructions identical from line 9 on
+if ! diff -q <(tail -n +9 "$REPO/commands/context.md") <(tail -n +9 "$REPO/commands/contexto.md") >/dev/null; then
+  die "commands/context.md and commands/contexto.md diverged past line 8 (keep aliases in sync)"
+else
+  ok "commands aliases"
+fi
+
+# 6. Frontmatter (updated:/tier:) present in every template
+for f in "$REPO"/templates/*.md "$REPO"/templates.en/*.md; do
+  grep -q '^updated:' "$f" || die "missing updated: in ${f#$REPO/}"
+  grep -q '^tier:' "$f" || die "missing tier: in ${f#$REPO/}"
+done
+ok "frontmatter"
+
+# 7. Whitespace errors on staged changes
+git diff --cached --check || die "whitespace errors (git diff --cached --check)"
+
+if [ "$fail" -ne 0 ]; then
+  warn "commit blocked — fix above, no --no-verify bypass for these checks"
+  exit 1
+fi
+echo "pre-commit: pass"

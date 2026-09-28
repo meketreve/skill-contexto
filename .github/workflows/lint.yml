@@ -10,16 +10,51 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
       - name: Syntax
-        run: bash -n scripts/init.sh && bash -n scripts/install.sh
+        run: bash -n scripts/init.sh && bash -n scripts/install.sh && bash -n .githooks/pre-commit
       - name: ShellCheck
-        run: shellcheck -S warning scripts/init.sh scripts/install.sh
-      - name: Smoke test (tiers 1–2, both langs)
+        run: shellcheck -S warning scripts/init.sh scripts/install.sh .githooks/pre-commit
+      - name: Executable bit
+        run: test -x scripts/init.sh && test -x scripts/install.sh && test -x .githooks/pre-commit
+      - name: Sync checks (templates, commands, frontmatter)
         run: |
-          rm -rf /tmp/smoke-pt /tmp/smoke-en
-          mkdir -p /tmp/smoke-pt /tmp/smoke-en
+          diff <(ls templates | sort) <(ls templates.en | sort)
+          diff <(tail -n +9 commands/context.md) <(tail -n +9 commands/contexto.md)
+          grep -q '^updated:' templates/MAP.md && grep -q '^tier:' templates/MAP.md
+          grep -q '^updated:' templates.en/MAP.md && grep -q '^tier:' templates.en/MAP.md
+          grep -q 'active:' templates/TODO.md && grep -q 'active:' templates.en/TODO.md
+      - name: Smoke test (tiers 1-3, both langs)
+        run: |
+          rm -rf /tmp/smoke-pt /tmp/smoke-en /tmp/smoke-t3 /tmp/smoke-mono /tmp/smoke-proj
+          mkdir -p /tmp/smoke-pt /tmp/smoke-en /tmp/smoke-t3 /tmp/smoke-mono/packages/foo /tmp/smoke-proj
           ./scripts/init.sh --tier 1 --lang pt --yes --dir /tmp/smoke-pt
           ./scripts/init.sh --tier 2 --lang en --yes --dir /tmp/smoke-en
+          ./scripts/init.sh --tier 3 --lang en --yes --dir /tmp/smoke-t3
           test -f /tmp/smoke-pt/.claude/context/MAP.md
           test -f /tmp/smoke-en/.claude/context/STATUS.md
           test -f /tmp/smoke-en/.claude/context/TODO.md
           grep -q "Project map" /tmp/smoke-en/.claude/context/MAP.md
+          # tier 3: BUGS.md ships, WORKFLOW.md never blank
+          test -f /tmp/smoke-t3/.claude/context/BUGS.md
+          test ! -f /tmp/smoke-t3/.claude/context/WORKFLOW.md
+          # tier 1 auto-block labels follow template language
+          grep -q "gerado em" /tmp/smoke-pt/.claude/context/MAP.md
+          # monorepo auto-detects tier 3
+          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-mono | grep -q "tier=3"
+      - name: Idempotency (re-run never overwrites manual content)
+        run: |
+          echo "MANUAL_LINE_DO_NOT_DELETE" >> /tmp/smoke-en/.claude/context/STATUS.md
+          sed -i 's/^active: false/active: true/' /tmp/smoke-en/.claude/context/TODO.md
+          ./scripts/init.sh --tier 2 --lang en --yes --dir /tmp/smoke-en
+          grep -q "MANUAL_LINE_DO_NOT_DELETE" /tmp/smoke-en/.claude/context/STATUS.md
+          grep -q "^active: true" /tmp/smoke-en/.claude/context/TODO.md
+          grep -q "^updated: $(date +%F)" /tmp/smoke-en/.claude/context/STATUS.md
+          grep -q "^tier: 2" /tmp/smoke-en/.claude/context/STATUS.md
+      - name: install.sh matrix
+        run: |
+          ./scripts/install.sh --list
+          ./scripts/install.sh --only claude --copy --force --uninstall || true
+          cd /tmp/smoke-proj && "$GITHUB_WORKSPACE/scripts/install.sh" --only claude,opencode --project
+          test -d /tmp/smoke-proj/.claude/skills/contexto
+          test -d /tmp/smoke-proj/.opencode/skills/contexto
+          test -f /tmp/smoke-proj/.opencode/commands/context.md
+          test -f /tmp/smoke-proj/.opencode/commands/contexto.md
