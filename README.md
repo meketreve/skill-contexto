@@ -21,17 +21,26 @@ Detail in `reference/tiers.md`. Bundled `templates/` are PT-BR (project memory s
 
 ## Install
 
-Claude Code (skill):
+One-liner:
+
 ```bash
-ln -s "$PWD" ~/.claude/skills/contexto
+git clone https://github.com/meketreve/skill-contexto.git && ./skill-contexto/scripts/install.sh
 ```
 
-opencode (skill + `/contexto` command):
+`install.sh` symlinks the skill into every harness dir it knows (symlink = tracks `git pull`). Useful flags: `--only claude,opencode,agents`, `--copy` (frozen copy instead of link), `--force` (replace existing), `--project` (copies into `./.claude` + `./.opencode` for team sharing — commit them), `--uninstall`, `--list`.
+
+| Harness | Skill path | Slash command | Notes |
+|---|---|---|---|
+| Claude Code | `~/.claude/skills/contexto` | n/a (skill auto-triggers) | project-level: `.claude/skills/contexto` |
+| opencode | `~/.config/opencode/skills/contexto` | `~/.config/opencode/commands/contexto.md` → `/contexto` | also auto-loads `~/.claude/skills` and `~/.agents/skills`; restart opencode after install |
+| Other Agent Skills harnesses | `~/.agents/skills/contexto` | — | any harness that discovers `SKILL.md` (see `install.sh --list`) |
+
+Symlink or copy? Personal use → symlink (updates are one `git pull` away). Teams / pinned versions → `--copy` or `--project`, so the exact skill version travels with the repo.
+
+No harness at all? The skill is pure bash + markdown. Clone it anywhere and run the scaffold directly — no plugin system required:
+
 ```bash
-mkdir -p ~/.config/opencode/skills ~/.config/opencode/commands
-ln -s "$PWD" ~/.config/opencode/skills/contexto
-ln -s "$PWD/commands/contexto.md" ~/.config/opencode/commands/contexto.md
-# quit and restart opencode
+/path/to/skill-contexto/scripts/init.sh --tier auto --dir ~/my-project
 ```
 
 ## Layout
@@ -39,6 +48,7 @@ ln -s "$PWD/commands/contexto.md" ~/.config/opencode/commands/contexto.md
 ```
 SKILL.md              # the skill (thin: picks tier, runs script, fills 20%)
 scripts/init.sh       # zero-token scaffold (detection + auto blocks + imports)
+scripts/install.sh    # links/copies the skill into your harnesses
 templates/            # MAP STATUS TODO LEARNINGS (+ BUGS WORKFLOW for tier 3)
 reference/tiers.md    # tiers, formats, imports, budgets (lazy load)
 commands/contexto.md  # /contexto command for opencode
