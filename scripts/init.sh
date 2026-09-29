@@ -48,10 +48,12 @@ if [ "$LANG_N" = "en" ]; then
   L_GEN="generated on"; L_TOP="top level"; L_ACT="Action"; L_CMD="Command"
   L_TEST_ALL="Test (all)"; L_TEST_ONE="Test (single)"; L_RUN="Run"
   L_NO_COMMITS="(no commits)"; L_NO_GIT="(no git)"; L_HEAD="# Project"
+  L_FILE="<file>"; L_FILES="<files>"
 else
   L_GEN="gerado em"; L_TOP="primeiro nível"; L_ACT="Ação"; L_CMD="Comando"
   L_TEST_ALL="Teste (tudo)"; L_TEST_ONE="Teste (um só)"; L_RUN="Rodar"
   L_NO_COMMITS="(sem commits)"; L_NO_GIT="(sem git)"; L_HEAD="# Projeto"
+  L_FILE="<arquivo>"; L_FILES="<arquivos>"
 fi
 
 mkdir -p "$CTX"
@@ -138,12 +140,99 @@ git_block() {
   echo '```'
 }
 
+# Picks a CMake configure preset for this host and prints
+# "configure<TAB>build-cmd<TAB>test-cmd". python3 parses the JSON; prints nothing
+# without python3 or a usable preset. Skips hidden presets and presets whose
+# ${hostSystemName} condition (own or inherited) excludes this host.
+cmake_preset_cmds() { # host-system-name
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 - "$DIR/CMakePresets.json" "$1" 2>/dev/null <<'EOF' || true
+import json, sys
+path, host = sys.argv[1], sys.argv[2]
+d = json.load(open(path))
+cfg = {p["name"]: p for p in d.get("configurePresets", [])}
+
+def field(p, key, seen=()):
+    if key in p:
+        return p[key]
+    inh = p.get("inherits", [])
+    for parent in [inh] if isinstance(inh, str) else inh:
+        if parent in cfg and parent not in seen:
+            v = field(cfg[parent], key, seen + (parent,))
+            if v is not None:
+                return v
+    return None
+
+def host_ok(c):
+    if not isinstance(c, dict) or c.get("lhs") != "${hostSystemName}":
+        return True
+    if c.get("type") == "equals":
+        return c.get("rhs") == host
+    if c.get("type") == "notEquals":
+        return c.get("rhs") != host
+    return True
+
+for name, p in cfg.items():
+    if p.get("hidden") or not host_ok(field(p, "condition")):
+        continue
+    bdir = (field(p, "binaryDir") or "build").replace("${sourceDir}/", "").replace("${presetName}", name)
+    bld = next((b["name"] for b in d.get("buildPresets", [])
+                if b.get("configurePreset") == name and not b.get("hidden")), None)
+    tst = next((t["name"] for t in d.get("testPresets", [])
+                if t.get("configurePreset") == name and not t.get("hidden")), None)
+    build = "cmake --build --preset " + bld if bld else "cmake --build " + bdir + " -j"
+    test = "ctest --preset " + tst if tst else "ctest --test-dir " + bdir + " --output-on-failure"
+    print("cmake --preset " + name + "\t" + build + "\t" + test)
+    break
+EOF
+}
+
+cmake_cmds() { # fills build/test_all/lint of the caller (map_cmd_block)
+  local host line="" cfg bcmd tcmd
+  case "$(uname -s 2>/dev/null)" in
+    Darwin) host="Darwin" ;;
+    MINGW*|MSYS*|CYGWIN*) host="Windows" ;;
+    *) host="Linux" ;;
+  esac
+  [ -f "$DIR/CMakePresets.json" ] && line="$(cmake_preset_cmds "$host")"
+  if [ -n "$line" ]; then
+    IFS=$'\t' read -r cfg bcmd tcmd <<< "$line"
+    build="$cfg && $bcmd"
+  else
+    build="cmake -S . -B build && cmake --build build -j"
+    tcmd="ctest --test-dir build --output-on-failure"
+  fi
+  # ctest only when some CMakeLists.txt registers tests.
+  if [ -z "$test_all" ] && find "$DIR" -name CMakeLists.txt -not -path "$DIR/build*" -not -path "$DIR/.git/*" \
+      -exec grep -Eqi 'enable_testing|add_test|include\(CTest\)' {} + 2>/dev/null; then
+    test_all="$tcmd"
+  fi
+  if [ -z "$lint" ]; then
+    [ -f "$DIR/.clang-format" ] && lint="clang-format -i $L_FILES"
+    [ -f "$DIR/.gersemirc" ] && lint="${lint:+$lint · }gersemi -i CMakeLists.txt"
+  fi
+  return 0
+}
+
+# Build/output dirs and anything git-ignored stay out of the top-level listing.
+# Output-dir names only count for directories with no tracked files, so
+# source like build-aux/ or buildspec.json still shows up.
+skip_top() { # name
+  case "$1" in
+    .git|.claude|__pycache__|node_modules|.venv) return 0 ;;
+    build*|out|dist|target)
+      if [ -d "$DIR/$1" ]; then
+        [ "$IN_GIT" = 1 ] || return 0
+        [ -z "$(git -C "$DIR" ls-files -- "$1" 2>/dev/null | head -n 1)" ] && return 0
+      fi ;;
+  esac
+  [ "$IN_GIT" = 1 ] && git -C "$DIR" check-ignore -q -- "$1" 2>/dev/null
+}
+
 map_cmd_block() {
   echo "$L_GEN: $TODAY"
   echo ""
-  echo "| $L_ACT | $L_CMD |"
-  echo "|---|---|"
-  local build="" test_all="" test_one="" lint="" run=""
+  local build="" test_all="" test_one="" lint="" run="" row
   if [ -f "$DIR/package.json" ]; then
     if command -v jq >/dev/null 2>&1; then
       for s in $(jq -r '.scripts // {} | keys[]' "$DIR/package.json" 2>/dev/null); do
@@ -162,22 +251,37 @@ map_cmd_block() {
       grep -q '"start"' "$DIR/package.json" && [ -z "$run" ] && run="npm start"
     fi
   fi
-  [ -f "$DIR/Makefile" ] && [ -z "$build" ] && grep -Eq '^(build|all):' "$DIR/Makefile" && build="make build"
+  # CMake before Makefile: a root Makefile next to CMakeLists.txt is often an in-source build.
+  [ -f "$DIR/CMakeLists.txt" ] && [ -z "$build" ] && cmake_cmds
+  if [ -f "$DIR/Makefile" ] && [ -z "$build" ]; then
+    if grep -Eq '^build:' "$DIR/Makefile"; then build="make build"
+    elif grep -Eq '^all:' "$DIR/Makefile"; then build="make"
+    fi
+  fi
   [ -f "$DIR/Cargo.toml" ] && { [ -z "$build" ] && build="cargo build"; [ -z "$test_all" ] && test_all="cargo test"; }
-  [ -f "$DIR/pyproject.toml" ] && [ -z "$test_all" ] && test_one="pytest -q <arquivo>" && test_all="pytest -q"
-  echo "| Build | $build |"
-  echo "| $L_TEST_ALL | $test_all |"
-  echo "| $L_TEST_ONE | $test_one |"
-  echo "| Lint/format | $lint |"
-  echo "| $L_RUN | $run |"
-  echo ""
+  [ -f "$DIR/pyproject.toml" ] && [ -z "$test_all" ] && test_one="pytest -q $L_FILE" && test_all="pytest -q"
+  # Undetected rows are left out; no table at all when nothing was detected.
+  local -a rows=()
+  [ -n "$build" ] && rows+=("| Build | $build |")
+  [ -n "$test_all" ] && rows+=("| $L_TEST_ALL | $test_all |")
+  [ -n "$test_one" ] && rows+=("| $L_TEST_ONE | $test_one |")
+  [ -n "$lint" ] && rows+=("| Lint/format | $lint |")
+  [ -n "$run" ] && rows+=("| $L_RUN | $run |")
+  if [ "${#rows[@]}" -gt 0 ]; then
+    echo "| $L_ACT | $L_CMD |"
+    echo "|---|---|"
+    for row in "${rows[@]}"; do echo "$row"; done
+    echo ""
+  fi
   echo "$L_TOP:"
   echo ""
   echo '```'
+  IN_GIT=0
+  git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 && IN_GIT=1
   shopt -s nullglob
   for e in "$DIR"/*; do
     b="${e##*/}"
-    case "$b" in .git|.claude|node_modules|target|__pycache__) continue;; esac
+    skip_top "$b" && continue
     printf '%s\n' "$b"
   done
   shopt -u nullglob
