@@ -10,11 +10,11 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
       - name: Syntax
-        run: bash -n scripts/init.sh && bash -n scripts/install.sh && bash -n scripts/index.sh && bash -n .githooks/pre-commit
+        run: bash -n scripts/init.sh && bash -n scripts/install.sh && bash -n scripts/index.sh && bash -n scripts/hook.sh && bash -n .githooks/pre-commit
       - name: ShellCheck
-        run: shellcheck -S warning scripts/init.sh scripts/install.sh scripts/index.sh .githooks/pre-commit
+        run: shellcheck -S warning scripts/init.sh scripts/install.sh scripts/index.sh scripts/hook.sh .githooks/pre-commit
       - name: Executable bit
-        run: test -x scripts/init.sh && test -x scripts/install.sh && test -x scripts/index.sh && test -x .githooks/pre-commit
+        run: test -x scripts/init.sh && test -x scripts/install.sh && test -x scripts/index.sh && test -x scripts/hook.sh && test -x .githooks/pre-commit
       - name: Sync checks (templates, commands, frontmatter)
         run: |
           diff <(ls templates | sort) <(ls templates.en | sort)
@@ -59,6 +59,18 @@ jobs:
           ./scripts/index.sh --dir /tmp/smoke-en -x | grep -q "on close"
           ! ./scripts/index.sh --dir /tmp/smoke-en -x | grep -q "heartbeat"
           ./scripts/index.sh --dir /tmp/smoke-en tablet | grep -q "LEARNINGS.md:.*heartbeat"
+      - name: hook.sh (recall by file, budget, silence, valid JSON)
+        run: |
+          D=/tmp/smoke-en
+          printf -- '- [2026-08-24] [net] the "socket" lives in src/net.ts\n' >> $D/.claude/context/LEARNINGS.md
+          j() { printf '{"session_id":"ci","cwd":"%s","scratchpad_dir":"/tmp","hook_event_name":"%s","tool_input":{"file_path":"%s"}}' "$D" "$1" "$2"; }
+          j PreToolUse $D/src/net.ts | ./scripts/hook.sh | python3 -c 'import json,sys; assert "src/net.ts" in json.load(sys.stdin)["hookSpecificOutput"]["additionalContext"]'
+          test -z "$(j PreToolUse $D/src/net.ts | ./scripts/hook.sh)"      # once per session
+          test -z "$(j PreToolUse $D/src/other.ts | ./scripts/hook.sh)"    # nothing cites it
+          test -z "$(j PostToolUse $D/.claude/context/STATUS.md | ./scripts/hook.sh)"  # under budget
+          seq 80 >> $D/.claude/context/STATUS.md
+          j PostToolUse $D/.claude/context/STATUS.md | ./scripts/hook.sh | grep -q "budget 60"
+          echo 'not json' | ./scripts/hook.sh
       - name: install.sh matrix
         run: |
           ./scripts/install.sh --list

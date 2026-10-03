@@ -64,7 +64,7 @@ Detail in `reference/hooks.md`. Only bring them up when the user asks to automat
 **The rule for every layer: a hook REMINDS or refreshes `auto` blocks — it never writes a manual section** (`STATUS` state, `MAP` flows, `TODO` items, `LEARNINGS` facts). A hook that writes judgment content defeats the script-first/model-second split. Hooks always exit 0; they remind, they never block.
 
 - **Git hook** (this repo): `.githooks/pre-commit` mirrors CI. Enable once per clone with `git config core.hooksPath .githooks` — it is not committable by design.
-- **Agent hook** (per project): `SessionStart` suggests `/contexto` when `MAP.md` is missing — it never runs `init.sh` by itself, because creating files is the user's call. `PostToolUse` reminds about budgets on edits under `.claude/context/`.
+- **Agent hook** (per project): `SessionStart` suggests `/contexto` when `MAP.md` is missing — it never runs `init.sh` by itself, because creating files is the user's call. `PreToolUse` shows the recorded learnings/bugs that cite a file before its first edit in the session, and `PostToolUse` warns when a context file goes over budget — both through `scripts/hook.sh`, silent otherwise.
 
 Finish with a short list of what was created and what was left blank for the user.
 

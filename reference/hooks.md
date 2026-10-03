@@ -17,7 +17,7 @@ Repo ships `.githooks/pre-commit` (zero dependencies, mirrors CI):
 - `commands/context.md` vs `contexto.md` identical past line 8
 - frontmatter (`updated:`, `tier:`) in every template
 - `git diff --cached --check` (whitespace)
-- `+x` on `scripts/*.sh` + hook
+- `+x` on `scripts/*.sh` + hook, in the working tree and in the git index
 
 Enable once per clone (not committable by design):
 
@@ -47,13 +47,25 @@ Project file `.claude/settings.json` (committable, team-shared):
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "h=\"$HOME/.claude/skills/contexto/scripts/hook.sh\"; [ -x \"$h\" ] && \"$h\"; exit 0",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": "input=$(cat); f=$(echo \"$input\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); case \"$f\" in .claude/context/*) echo 'Reminder: respect budgets outside auto blocks (STATUS/TODO/MAP 60, LEARNINGS 100) and never edit <!-- auto:start --> blocks by hand.' ;; esac; exit 0",
+            "command": "h=\"$HOME/.claude/skills/contexto/scripts/hook.sh\"; [ -x \"$h\" ] && \"$h\"; exit 0",
             "timeout": 5
           }
         ]
@@ -66,7 +78,12 @@ Project file `.claude/settings.json` (committable, team-shared):
 Notes:
 
 - `SessionStart` is read-only: missing context → suggest, existing → show `git status`. Never runs `init.sh` by itself (scaffolding creates files — that decision stays with the user/model).
-- `PostToolUse` fires only for edits under `.claude/context/`; everything else exits silently. Requires `jq` for stdin parsing — without `jq` the `f` extraction fails empty and the hook stays silent, which is the safe default.
+- `PreToolUse` and `PostToolUse` both call `scripts/hook.sh`, which decides by event and path and stays silent otherwise:
+  - **Recall by file** (PreToolUse, file outside `.claude/context/`): runs `index.sh` with the file's project-relative path (then its basename, unless generic like `index.ts`/`main.py`) and, when entries in `LEARNINGS*`/`BUGS*` cite it, shows up to 3 of them before the edit. Once per file per session (a marker in the session scratchpad), so repeated edits don't repeat it.
+  - **Budget** (PostToolUse, `STATUS`/`TODO`/`MAP`/`LEARNINGS.md`): measures the manual part (outside auto blocks) and speaks only when it is over the budget.
+- Output is `hookSpecificOutput.additionalContext` JSON: for tool events, plain `echo` goes only to the debug log and never reaches the model (the earlier one-liner here had that bug, and also matched a relative path against the absolute `file_path` — it never fired). `SessionStart` is the exception: its plain stdout does reach the model.
+- `jq` is optional: without it, `hook.sh` parses the flat fields it needs with `sed`.
+- The `$HOME/.claude/skills/contexto` path is personal, so this wiring belongs in `.claude/settings.local.json`. For a team, install the skill with `install.sh --project` and point at `"$CLAUDE_PROJECT_DIR"/.claude/skills/contexto/scripts/hook.sh` in the committed `.claude/settings.json`. The `[ -x ]` guard keeps the hook silent where the skill isn't installed.
 - Personal/machine-only hooks go in `.claude/settings.local.json` (gitignored), never in the committable file.
 
 ### opencode (via Claude-compatible plugin)
@@ -83,8 +100,9 @@ adopting). It reads `.opencode/hooks.json` (project) or
 { "$schema": "https://opencode.ai/config.json", "plugin": ["opencode-claude-hooks"] }
 ```
 
-2. Reuse the same `SessionStart` / `PostToolUse` JSON from the Claude
-   example in `.opencode/hooks.json`.
+2. Reuse the same `SessionStart` / `PreToolUse` / `PostToolUse` JSON from the Claude
+   example in `.opencode/hooks.json`. Check that the bridge forwards
+   `additionalContext` to the model; if it doesn't, the two tool hooks are silent no-ops.
 
 If the plugin is unavailable, the fallback is manual: run
 `scripts/init.sh --tier auto` at session start — no automation needed.
