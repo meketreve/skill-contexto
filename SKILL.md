@@ -1,6 +1,6 @@
 ---
 name: contexto
-description: Bootstraps lean project context in 3 tiers (MAP/STATUS/TODO/LEARNINGS/BUGS/WORKFLOW) with a zero-token script scaffold. Use when the user asks to prepare/bootstrap project context, montar/iniciar o contexto, build a MAP/STATUS, or organize project memory.
+description: Bootstraps lean project context in 3 tiers (MAP/STATUS/TODO/LEARNINGS/BUGS/WORKFLOW) with a zero-token script scaffold, and closes a session by updating those files. Use when the user asks to prepare/bootstrap project context, montar/iniciar o contexto, build a MAP/STATUS, organize project memory, or for a handoff — encerrar a sessão, passar o bastão, or before suggesting /clear.
 ---
 
 # Tiered project context
@@ -66,3 +66,15 @@ Detail in `reference/hooks.md`. Only bring them up when the user asks to automat
 - **Agent hook** (per project): `SessionStart` suggests `/contexto` when `MAP.md` is missing — it never runs `init.sh` by itself, because creating files is the user's call. `PostToolUse` reminds about budgets on edits under `.claude/context/`.
 
 Finish with a short list of what was created and what was left blank for the user.
+
+## 7. Closing a session (handoff)
+
+On request only — never from a hook. Work from **this conversation**; don't re-explore the project.
+
+1. `STATUS.md`: rewrite "current state" and "next phase" (concrete entry point and `→ verify:`), update pending items, move what finished to "done", trim "done" past ~10 items.
+2. `TODO.md`: drop what finished, keep half-done work in "now", add findings to "later". Queue empty → `active: false`.
+3. `LEARNINGS.md`: this session's corrections, gotchas and decisions, with the verdict (`[✓]`/`[✗]`/`[↻ date]`) on anything tried or decided. Skip if there were none.
+4. `BUGS.md`: fixes that meet the rule (broken build/CI, reported bug, >2 attempts), with the literal error message.
+5. `MAP.md`: paths that took more than 2–3 searches, commands discovered.
+
+Bump `updated:` on every file touched; budgets, auto blocks and "no file the tier doesn't call for" apply as above (a missing file is created by `init.sh`, never by copying a template by hand). Don't commit unless asked. Finish with 3–5 lines: what was updated and the next phase.
