@@ -52,5 +52,15 @@ In opencode, root `CLAUDE.md` is read as a global fallback; alternatively, decla
 
 ## 5. Budgets (context spending)
 
-- `STATUS.md` / `TODO.md`: 60 lines max. `LEARNINGS.md`: 100. Past that, summarize into 1 line or delete — `git log` is the source of truth.
-- Finish with a short list of what was created and what was left blank for the user.
+- `STATUS.md` / `TODO.md`: 60 lines max. `LEARNINGS.md`: 100. `MAP.md`: 60. Past that, summarize into 1 line or delete — `git log` is the source of truth.
+
+## 6. Hooks (optional)
+
+Detail in `reference/hooks.md`. Only bring them up when the user asks to automate the hygiene — they are opt-in, never part of the default scaffold.
+
+**The rule for every layer: a hook REMINDS or refreshes `auto` blocks — it never writes a manual section** (`STATUS` state, `MAP` flows, `TODO` items, `LEARNINGS` facts). A hook that writes judgment content defeats the script-first/model-second split. Hooks always exit 0; they remind, they never block.
+
+- **Git hook** (this repo): `.githooks/pre-commit` mirrors CI. Enable once per clone with `git config core.hooksPath .githooks` — it is not committable by design.
+- **Agent hook** (per project): `SessionStart` suggests `/contexto` when `MAP.md` is missing — it never runs `init.sh` by itself, because creating files is the user's call. `PostToolUse` reminds about budgets on edits under `.claude/context/`.
+
+Finish with a short list of what was created and what was left blank for the user.
