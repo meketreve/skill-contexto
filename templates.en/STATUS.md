@@ -5,7 +5,7 @@ tier: 2
 
 # Status — tier 2+
 
-<!-- BUDGET: 60 lines. Summarize "Done" when it grows. -->
+<!-- BUDGET: 60 lines OUTSIDE the auto block (the block is the script's and does not count). Summarize "Done" when it grows. -->
 
 ## Current state
 

@@ -52,7 +52,9 @@ In opencode, root `CLAUDE.md` is read as a global fallback; alternatively, decla
 
 ## 5. Budgets (context spending)
 
-- `STATUS.md` / `TODO.md`: 60 lines max. `LEARNINGS.md`: 100. `MAP.md`: 60. Past that, summarize into 1 line or delete — `git log` is the source of truth.
+- `STATUS.md` / `TODO.md`: 60 lines max. `LEARNINGS.md`: 100. `MAP.md`: 60. **Counted outside `<!-- auto:start -->…<!-- auto:end -->` blocks** — the auto block is the script's, so it neither counts nor gets trimmed by hand.
+- Measure: `awk '/<!-- auto:start -->/{s=1} !s{n++} /<!-- auto:end -->/{s=0} END{print n+0}' FILE`.
+- Past that, summarize the manual part into 1 line or delete — `git log` is the source of truth.
 
 ## 6. Hooks (optional)
 

@@ -74,4 +74,4 @@ opencode via Claude-compatible plugin; hooks remind, never auto-write).
 - Frontmatter `updated/tier` (script-owned) + `<!-- auto:start -->` blocks (script-only).
 - One line per fact with tags: `- [2026-09-28] [pytest] fact — consequence`.
 - `BUGS.md` is never imported — `grep` the error message.
-- Budgets: STATUS/TODO 60 lines, LEARNINGS 100, MAP 60.
+- Budgets: STATUS/TODO 60 lines, LEARNINGS 100, MAP 60 — counted outside the `<!-- auto -->` blocks, which belong to the script.

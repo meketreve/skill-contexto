@@ -43,5 +43,6 @@ tier: 2
 
 ## Budgets
 
-- `STATUS.md` / `TODO.md`: 60 lines. `LEARNINGS.md`: 100. `MAP.md`: 60.
+- `STATUS.md` / `TODO.md`: 60 lines. `LEARNINGS.md`: 100. `MAP.md`: 60 — all counted **outside the auto blocks**. The script owns what is inside `<!-- auto:start -->…<!-- auto:end -->`; it does not count toward the budget and is never trimmed by hand (it would come back on the next `init.sh` run anyway).
+- Measure the manual part: `awk '/<!-- auto:start -->/{s=1} !s{n++} /<!-- auto:end -->/{s=0} END{print n+0}' FILE`.
 - Past the budget: summarize "Done" into 1 line or delete; `git log` keeps the rest.

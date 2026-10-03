@@ -5,7 +5,7 @@ tier: 2
 
 # Learnings
 
-<!-- BUDGET: 100 lines. One line per fact, greppable format: `- [YYYY-MM-DD] [tag] fact — consequence`. -->
+<!-- BUDGET: 100 lines outside auto blocks. One line per fact, greppable format: `- [YYYY-MM-DD] [tag] fact — consequence`. -->
 
 ## User preferences
 

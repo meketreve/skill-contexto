@@ -5,7 +5,7 @@ tier: 1
 
 # Project map
 
-<!-- BUDGET: 60 lines. `git log` keeps the rest. The auto block belongs to the script. -->
+<!-- BUDGET: 60 lines OUTSIDE the auto block (the block is the script's and does not count). `git log` keeps the rest. -->
 
 ## Commands
 

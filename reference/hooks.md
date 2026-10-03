@@ -53,7 +53,7 @@ Project file `.claude/settings.json` (committable, team-shared):
         "hooks": [
           {
             "type": "command",
-            "command": "input=$(cat); f=$(echo \"$input\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); case \"$f\" in .claude/context/*) echo 'Reminder: respect budgets (STATUS/TODO 60, LEARNINGS 100) and never edit <!-- auto:start --> blocks by hand.' ;; esac; exit 0",
+            "command": "input=$(cat); f=$(echo \"$input\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); case \"$f\" in .claude/context/*) echo 'Reminder: respect budgets outside auto blocks (STATUS/TODO/MAP 60, LEARNINGS 100) and never edit <!-- auto:start --> blocks by hand.' ;; esac; exit 0",
             "timeout": 5
           }
         ]

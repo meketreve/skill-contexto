@@ -5,7 +5,7 @@ tier: 1
 
 # Mapa do projeto
 
-<!-- TETO: 60 linhas. O `git log` guarda o resto. Bloco auto pertence ao script. -->
+<!-- TETO: 60 linhas FORA do bloco auto (o bloco é do script e não conta). O `git log` guarda o resto. -->
 
 ## Comandos
 

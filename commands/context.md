@@ -19,6 +19,6 @@ Accepts `--tier 1|2|3` to force, `--lang en|pt`, and `--yes` to never prompt.
 - `TODO.md`: set (`active: true`) only for a 3+ step task without tracker.
 - `LEARNINGS.md`: one line per fact `- [YYYY-MM-DD] [tag] fact — consequence`.
 
-3. Never edit `<!-- auto:start -->` blocks; never create a file the tier doesn't call for; respect budgets (STATUS/TODO 60, LEARNINGS 100).
+3. Never edit `<!-- auto:start -->` blocks; never create a file the tier doesn't call for; respect budgets, counted outside auto blocks (STATUS/TODO/MAP 60, LEARNINGS 100).
 
 4. Finish by listing what was created and what was left blank.

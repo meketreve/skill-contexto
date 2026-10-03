@@ -5,7 +5,7 @@ tier: 2
 
 # Status — tier 2+
 
-<!-- TETO: 60 linhas. Resumir "Concluído" quando crescer. -->
+<!-- TETO: 60 linhas FORA do bloco auto (o bloco é do script e não conta). Resumir "Concluído" quando crescer. -->
 
 ## Estado atual
 

@@ -5,7 +5,7 @@ tier: 2
 
 # Aprendizados
 
-<!-- TETO: 100 linhas. Uma linha por fato, formato grepável: `- [AAAA-MM-DD] [tag] fato — consequência`. -->
+<!-- TETO: 100 linhas fora de blocos auto. Uma linha por fato, formato grepável: `- [AAAA-MM-DD] [tag] fato — consequência`. -->
 
 ## Preferências do usuário
 

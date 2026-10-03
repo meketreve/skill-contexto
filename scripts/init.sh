@@ -131,9 +131,10 @@ git_block() {
   echo ""
   echo '```'
   if [ -d "$DIR/.git" ]; then
-    git -C "$DIR" log --oneline -15 2>/dev/null || echo "$L_NO_COMMITS"
+    # Short on purpose: the block is imported every session; `git log` has the rest.
+    git -C "$DIR" log --oneline -8 2>/dev/null || echo "$L_NO_COMMITS"
     echo "--- status ---"
-    git -C "$DIR" status --short 2>/dev/null || true
+    git -C "$DIR" status --short 2>/dev/null | awk 'NR<=10 { print } END { if (NR > 10) print "... +" NR-10 }' || true
   else
     echo "$L_NO_GIT"
   fi
