@@ -9,7 +9,7 @@ Flow: **script first (zero tokens), model second (judgment only).**
 
 ## 1. Pick the tier
 
-Run the script with auto-detection (it counts files, detects monorepos, and asks whether the work spans more than one session):
+Run the script with auto-detection (it counts files — skipping tool/build dirs like `_bmad/`, `.agent/`, `node_modules/`, `build/` — detects monorepos, and for the tier 1–2 tie treats commits on 2+ distinct days as multi-session, asking only when git can't tell):
 
 ```bash
 <skill-dir>/scripts/init.sh --tier auto
@@ -20,7 +20,7 @@ Add `--lang en` for English templates (`templates.en/`); default `auto` follows 
 Rules (detail in `reference/tiers.md`):
 
 - **Tier 1 — light/one-shot, <20 files:** minimal `MAP.md` only.
-- **Tier 2 — medium/multi-session, 20–200 files:** adds `STATUS.md` + `LEARNINGS.md` (+ `TODO.md` if the task has 3+ steps and no issue tracker).
+- **Tier 2 — medium/multi-session, 20–200 files:** adds `STATUS.md` + `LEARNINGS.md` (+ `TODO.md` if the task has 3+ steps and no issue tracker — only with `--todo`).
 - **Tier 3 — large/monorepo/team:** adds per-package `TODO`, `WORKFLOW.md` if a process was adopted, `BUGS.md` split out only once LEARNINGS holds ~10+ bug entries.
 
 Never create a file the tier doesn't call for. Deciding **not** to create is part of the job.
@@ -28,6 +28,8 @@ Never create a file the tier doesn't call for. Deciding **not** to create is par
 ## 2. What the script already did (don't redo)
 
 `init.sh` only creates missing files, never overwrites, and fills the `<!-- auto:start -->` blocks (date, `git log`, manifest commands, top-level `ls`) + ensures the imports in `CLAUDE.md`. Don't redo that by hand.
+
+It warns `old format:` for a context file with no frontmatter or no auto block (written before the script) — such a file is never stamped or filled. Rerun with `--migrate` to add the template's frontmatter on top and its auto section at the end, keeping the text (backup in `FILE.bak`).
 
 ## 3. What the model fills in (only the ~20% needing judgment)
 

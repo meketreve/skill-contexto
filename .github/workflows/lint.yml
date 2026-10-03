@@ -24,14 +24,16 @@ jobs:
           grep -q 'active:' templates/TODO.md && grep -q 'active:' templates.en/TODO.md
       - name: Smoke test (tiers 1-3, both langs)
         run: |
-          rm -rf /tmp/smoke-pt /tmp/smoke-en /tmp/smoke-t3 /tmp/smoke-mono /tmp/smoke-proj
-          mkdir -p /tmp/smoke-pt /tmp/smoke-en /tmp/smoke-t3 /tmp/smoke-mono/packages/foo /tmp/smoke-proj
+          rm -rf /tmp/smoke-pt /tmp/smoke-en /tmp/smoke-t3 /tmp/smoke-mono /tmp/smoke-proj /tmp/smoke-old /tmp/smoke-bmad /tmp/smoke-hist
+          mkdir -p /tmp/smoke-pt /tmp/smoke-en /tmp/smoke-t3 /tmp/smoke-mono/packages/foo /tmp/smoke-proj /tmp/smoke-hist
           ./scripts/init.sh --tier 1 --lang pt --yes --dir /tmp/smoke-pt
-          ./scripts/init.sh --tier 2 --lang en --yes --dir /tmp/smoke-en
+          ./scripts/init.sh --tier 2 --lang en --yes --todo --dir /tmp/smoke-en
           ./scripts/init.sh --tier 3 --lang en --yes --dir /tmp/smoke-t3
           test -f /tmp/smoke-pt/.claude/context/MAP.md
           test -f /tmp/smoke-en/.claude/context/STATUS.md
           test -f /tmp/smoke-en/.claude/context/TODO.md
+          ! grep -q "TODO.md" /tmp/smoke-en/CLAUDE.md            # inactive TODO is not imported
+          test ! -f /tmp/smoke-t3/.claude/context/TODO.md       # no TODO without --todo
           grep -q "Project map" /tmp/smoke-en/.claude/context/MAP.md
           # tier 3: BUGS.md ships, WORKFLOW.md never blank
           test -f /tmp/smoke-t3/.claude/context/BUGS.md
@@ -40,6 +42,20 @@ jobs:
           grep -q "gerado em" /tmp/smoke-pt/.claude/context/MAP.md
           # monorepo auto-detects tier 3
           ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-mono | grep -q "tier=3"
+          # tool dirs don't count; commits on 2+ days break the tier 1-2 tie
+          mkdir -p /tmp/smoke-bmad/_bmad/.git && for i in $(seq 1 250); do : > /tmp/smoke-bmad/_bmad/f$i; : > /tmp/smoke-bmad/_bmad/.git/f$i; done
+          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-bmad | grep -q "tier=1"
+          git -C /tmp/smoke-hist init -q
+          for d in 2026-09-27 2026-09-30; do GIT_AUTHOR_DATE=${d}T12:00 GIT_COMMITTER_DATE=${d}T12:00 git -C /tmp/smoke-hist -c user.name=ci -c user.email=ci@ci commit -q --allow-empty -m $d; done
+          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-hist | grep -q "tier=2"
+          # old format: warn, then --migrate keeps the text and adds frontmatter + auto block
+          mkdir -p /tmp/smoke-old/.claude/context && printf '# Status\n\nOLD_MANUAL\n' > /tmp/smoke-old/.claude/context/STATUS.md
+          ./scripts/init.sh --tier 2 --yes --dir /tmp/smoke-old 2>&1 | grep -q "old format: STATUS.md"
+          ./scripts/init.sh --tier 2 --yes --migrate --dir /tmp/smoke-old
+          head -1 /tmp/smoke-old/.claude/context/STATUS.md | grep -qx -- "---"
+          grep -q "OLD_MANUAL" /tmp/smoke-old/.claude/context/STATUS.md
+          test -f /tmp/smoke-old/.claude/context/STATUS.md.bak
+          test "$(grep -c '<!-- auto:start -->' /tmp/smoke-old/.claude/context/STATUS.md)" = 1
       - name: Idempotency (re-run never overwrites manual content)
         run: |
           echo "MANUAL_LINE_DO_NOT_DELETE" >> /tmp/smoke-en/.claude/context/STATUS.md
@@ -47,6 +63,7 @@ jobs:
           ./scripts/init.sh --tier 2 --lang en --yes --dir /tmp/smoke-en
           grep -q "MANUAL_LINE_DO_NOT_DELETE" /tmp/smoke-en/.claude/context/STATUS.md
           grep -q "^active: true" /tmp/smoke-en/.claude/context/TODO.md
+          grep -q "@.claude/context/TODO.md" /tmp/smoke-en/CLAUDE.md   # imported once active
           grep -q "^updated: $(date +%F)" /tmp/smoke-en/.claude/context/STATUS.md
           grep -q "^tier: 2" /tmp/smoke-en/.claude/context/STATUS.md
       - name: index.sh (entries, verdicts, multi-line match)
@@ -59,6 +76,8 @@ jobs:
           ./scripts/index.sh --dir /tmp/smoke-en -x | grep -q "on close"
           ! ./scripts/index.sh --dir /tmp/smoke-en -x | grep -q "heartbeat"
           ./scripts/index.sh --dir /tmp/smoke-en tablet | grep -q "LEARNINGS.md:.*heartbeat"
+          printf -- '- [2026-08-25] [ui] the [✗] icon is red\n' >> "$L"     # ✗ in the text is no verdict
+          test "$(./scripts/index.sh --dir /tmp/smoke-en -x | grep -c 2026-08)" = 1
       - name: hook.sh (recall by file, budget, silence, valid JSON)
         run: |
           D=/tmp/smoke-en

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # init.sh — 3-tier context scaffold, zero tokens spent.
-# Usage: init.sh [--tier auto|1|2|3] [--dir PROJECT] [--lang auto|pt|en] [--yes]
+# Usage: init.sh [--tier auto|1|2|3] [--dir PROJECT] [--lang auto|pt|en] [--yes] [--todo] [--migrate]
 # Only creates missing files; never overwrites manual content.
 # <!-- auto:start --> … <!-- auto:end --> blocks belong to the script.
 set -euo pipefail
@@ -9,11 +9,15 @@ TIER="auto"
 DIR="."
 LANG_OPT="${CONTEXTO_LANG:-auto}"
 ASSUME="${CONTEXTO_ASSUME_MULTISESSAO:-}"
+WANT_TODO=0
+MIGRATE=0
 
 usage() {
-  echo "usage: init.sh [--tier auto|1|2|3] [--dir DIR] [--lang auto|pt|en] [--yes]"
+  echo "usage: init.sh [--tier auto|1|2|3] [--dir DIR] [--lang auto|pt|en] [--yes] [--todo] [--migrate]"
   echo "  --lang picks the template language (default: auto from \$LANG, pt* → pt, else en)"
-  echo "  --yes  never prompt (auto assumes single session for the tier 1-2 tie)"
+  echo "  --yes  never prompt (tier 1-2 tie: commits on 2+ days → 2, else 1)"
+  echo "  --todo create TODO.md (tier 2+; only for a 3+ step task without an issue tracker)"
+  echo "  --migrate add frontmatter/auto block to old-format files, keeping the text (backup: .bak)"
 }
 
 while [ $# -gt 0 ]; do
@@ -22,6 +26,8 @@ while [ $# -gt 0 ]; do
     --dir) DIR="${2:-.}"; shift 2 ;;
     --lang) LANG_OPT="${2:-auto}"; shift 2 ;;
     --yes) ASSUME="0"; shift ;;
+    --todo) WANT_TODO=1; shift ;;
+    --migrate) MIGRATE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 1 ;;
   esac
@@ -58,12 +64,39 @@ fi
 
 mkdir -p "$CTX"
 
-nfiles() {
-  if [ -d "$DIR/.git" ] && command -v git >/dev/null 2>&1; then
-    git -C "$DIR" ls-files 2>/dev/null | wc -l
+# The project's repo: DIR itself (or a worktree/subdir of one), else the only
+# repo one level down — a plain folder wrapping the real repo.
+GIT_ROOT=""
+if command -v git >/dev/null 2>&1; then
+  if git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    GIT_ROOT="$DIR"
   else
-    find "$DIR" -type f -not -path "$DIR/.git/*" -not -path "$DIR/.claude/*" -not -path "*/node_modules/*" 2>/dev/null | wc -l
+    shopt -s nullglob
+    subs=("$DIR"/*/.git)
+    shopt -u nullglob
+    [ "${#subs[@]}" -eq 1 ] && GIT_ROOT="${subs[0]%/.git}"
   fi
+fi
+
+# Tool/agent/build dirs: hundreds of files that say nothing about project size.
+SKIP_DIRS=(.git _bmad .agent .claude .wolf node_modules build .cxx __pycache__ .venv)
+
+nfiles() {
+  local re d
+  local -a prune=()
+  re="(^|/)($(IFS='|'; echo "${SKIP_DIRS[*]}" | sed 's/\./\\./g'))/"
+  if [ "$GIT_ROOT" = "$DIR" ]; then
+    git -C "$DIR" ls-files 2>/dev/null | grep -cEv "$re" || true
+  else
+    for d in "${SKIP_DIRS[@]}"; do prune+=(-name "$d" -o); done
+    find "$DIR" \( "${prune[@]}" -false \) -prune -o -type f -print 2>/dev/null | wc -l
+  fi
+}
+
+# Commits on 2+ distinct days: the work already spans sessions.
+multi_day() {
+  [ -n "$GIT_ROOT" ] || return 1
+  [ "$(git -C "$GIT_ROOT" log -n 500 --format=%ad --date=short 2>/dev/null | sort -u | wc -l)" -ge 2 ]
 }
 
 is_monorepo() {
@@ -84,6 +117,7 @@ resolve_tier() {
   if [ "${n:-0}" -ge 20 ]; then echo 2; return; fi
   # <20 files: break the tie by duration
   if [ "$ASSUME" = "1" ]; then echo 2; return; fi
+  if multi_day; then echo "git history spans 2+ days → multi-session" >&2; echo 2; return; fi
   if [ "$ASSUME" = "0" ]; then echo 1; return; fi
   if [ -t 0 ]; then
     read -r -p "will this last more than one session? (y/n) " r
@@ -112,6 +146,35 @@ stamp_frontmatter() { # file tier
   fi
 }
 
+# Old format (no frontmatter, or no auto block where the template has one):
+# nothing gets stamped or filled. Warn; --migrate wraps the manual text with
+# what is missing — the template's frontmatter on top, its auto section at the end.
+check_format() { # file template
+  local f="$1" tpl="$2" fm=1 au=1 miss
+  [ "$(head -n 1 "$f")" = "---" ] || fm=0
+  if grep -q '<!-- auto:start -->' "$tpl" && ! grep -q '<!-- auto:start -->' "$f"; then au=0; fi
+  [ "$fm$au" = 11 ] && return 0
+  miss=""
+  if [ "$fm" = 0 ]; then miss="frontmatter"; fi
+  if [ "$au" = 0 ]; then miss="${miss:+$miss + }auto block"; fi
+  if [ "$MIGRATE" != 1 ]; then
+    echo "old format: ${f##*/} has no $miss — add it by hand or rerun with --migrate (keeps the text, backup in .bak)" >&2
+    return 0
+  fi
+  cp "$f" "$f.bak"
+  {
+    if [ "$fm" = 0 ]; then awk 'NR == 1 && $0 != "---" { exit } { print } NR > 1 && $0 == "---" { exit }' "$tpl"; echo ""; fi
+    cat "$f"
+    if [ "$au" = 0 ]; then
+      echo ""
+      awk '/^## / { h = $0 } /<!-- auto:start -->/ { print h; exit }' "$tpl"
+      printf '\n<!-- auto:start -->\n<!-- auto:end -->\n'
+    fi
+  } > "$f.new"
+  mv "$f.new" "$f"
+  echo "migrated ${f##*/}: added $miss (backup: ${f##*/}.bak)"
+}
+
 # Replaces the auto block in the file with stdin content.
 replace_auto() { # file
   local f="$1" tmp
@@ -130,11 +193,12 @@ git_block() {
   echo "data: $TODAY"
   echo ""
   echo '```'
-  if [ -d "$DIR/.git" ]; then
+  if [ -n "$GIT_ROOT" ]; then
+    [ "$GIT_ROOT" = "$DIR" ] || echo "repo: ${GIT_ROOT#"$DIR"/}/"
     # Short on purpose: the block is imported every session; `git log` has the rest.
-    git -C "$DIR" log --oneline -8 2>/dev/null || echo "$L_NO_COMMITS"
+    git -C "$GIT_ROOT" log --oneline -8 2>/dev/null || echo "$L_NO_COMMITS"
     echo "--- status ---"
-    git -C "$DIR" status --short 2>/dev/null | awk 'NR<=10 { print } END { if (NR > 10) print "... +" NR-10 }' || true
+    git -C "$GIT_ROOT" status --short 2>/dev/null | awk 'NR<=10 { print } END { if (NR > 10) print "... +" NR-10 }' || true
   else
     echo "$L_NO_GIT"
   fi
@@ -293,7 +357,11 @@ ensure_claude_imports() { # tier
   local claude="$DIR/CLAUDE.md" t="$1"
   local -a want=("@.claude/context/MAP.md")
   if [ "$t" -ge 2 ]; then
-    want+=("@.claude/context/STATUS.md" "@.claude/context/TODO.md" "@.claude/context/LEARNINGS.md")
+    want+=("@.claude/context/STATUS.md" "@.claude/context/LEARNINGS.md")
+    # TODO only while active (SKILL.md §4); an inactive one is read on demand.
+    if grep -qE '^active:[[:space:]]*true' "$DIR/.claude/context/TODO.md" 2>/dev/null; then
+      want+=("@.claude/context/TODO.md")
+    fi
   fi
   [ -f "$DIR/.claude/context/WORKFLOW.md" ] && want+=("@.claude/context/WORKFLOW.md")
   if [ ! -f "$claude" ]; then
@@ -308,23 +376,31 @@ ensure_claude_imports() { # tier
 
 # --- files per tier ---
 copy_missing "$TPL/MAP.md" "$CTX/MAP.md"
+check_format "$CTX/MAP.md" "$TPL/MAP.md"
 stamp_frontmatter "$CTX/MAP.md" "$TIER_N"
 map_cmd_block | replace_auto "$CTX/MAP.md"
 
 if [ "$TIER_N" -ge 2 ]; then
   copy_missing "$TPL/STATUS.md" "$CTX/STATUS.md"
-  copy_missing "$TPL/TODO.md" "$CTX/TODO.md"
+  # TODO.md only on request: it is for a 3+ step task without an issue tracker.
+  if [ "$WANT_TODO" = 1 ]; then copy_missing "$TPL/TODO.md" "$CTX/TODO.md"; fi
   copy_missing "$TPL/LEARNINGS.md" "$CTX/LEARNINGS.md"
-  stamp_frontmatter "$CTX/STATUS.md" "$TIER_N"
-  stamp_frontmatter "$CTX/TODO.md" "$TIER_N"
-  stamp_frontmatter "$CTX/LEARNINGS.md" "$TIER_N"
+  for f in STATUS TODO LEARNINGS; do
+    [ -f "$CTX/$f.md" ] || continue
+    check_format "$CTX/$f.md" "$TPL/$f.md"
+    stamp_frontmatter "$CTX/$f.md" "$TIER_N"
+  done
   git_block | replace_auto "$CTX/STATUS.md"
 fi
 
 if [ "$TIER_N" -ge 3 ]; then
   copy_missing "$TPL/BUGS.md" "$CTX/BUGS.md"
+  check_format "$CTX/BUGS.md" "$TPL/BUGS.md"
   # WORKFLOW.md only if the user already has a process — never create blank.
-  [ -f "$CTX/WORKFLOW.md" ] && stamp_frontmatter "$CTX/WORKFLOW.md" "$TIER_N" || true
+  if [ -f "$CTX/WORKFLOW.md" ]; then
+    check_format "$CTX/WORKFLOW.md" "$TPL/WORKFLOW.md"
+    stamp_frontmatter "$CTX/WORKFLOW.md" "$TIER_N"
+  fi
 fi
 
 ensure_claude_imports "$TIER_N"
@@ -342,5 +418,10 @@ if [ "$TIER_N" -ge 2 ] && [ -f "$CTX/TODO.md" ]; then
     echo "TODO is active: true — set it back to false when the queue empties."
   else
     echo "TODO is active: false — enable for a 3+ step task."
+    if grep -qF "@.claude/context/TODO.md" "$DIR/CLAUDE.md" 2>/dev/null; then
+      echo "CLAUDE.md still imports TODO.md — drop that line while it is inactive."
+    fi
   fi
+elif [ "$TIER_N" -ge 2 ]; then
+  echo "no TODO.md — rerun with --todo for a 3+ step task without an issue tracker."
 fi

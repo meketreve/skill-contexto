@@ -26,7 +26,7 @@ tier: 2
 ---
 ```
 
-- `TODO.md` adds `active: true|false` — import only while active.
+- `TODO.md` adds `active: true|false` — import only while active. `init.sh` creates it only with `--todo`.
 - `<!-- auto:start --> … <!-- auto:end -->` blocks belong to the script (date, `git log`, commands, `ls`). The model never edits inside them by hand; the script never touches anything outside them.
 - One line per fact, with greppable tags: `- [2026-09-28] [pytest] fact — consequence`. Fill in the user's language (templates ship in PT-BR and English).
 - Verdict, on lines that record something tried or decided (plain facts like preferences and gotchas go without): `[✓]` tested and kept, `[✗]` tried and rejected — the reason after the dash, `[↻ YYYY-MM-DD]` superseded by that day's entry. Symbols, not words, so the same grep works in both languages:

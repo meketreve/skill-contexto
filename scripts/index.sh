@@ -52,10 +52,15 @@ entries() {
       if (kind != "") print (date == "" ? "0000-00-00" : date), fname ":" start, sect, verdict(text), summ, tolower(text)
       kind = ""; text = ""
     }
-    function verdict(t) {
-      if (index(t, "[✗]")) return "✗"
-      if (index(t, "[↻")) return "↻"
-      if (index(t, "[✓]")) return "✓"
+    function verdict(t,   g) {
+      # only in the leading [date] [tag] [verdict] run — a ✗ quoted later in the text is not one
+      sub(/^- +/, "", t)
+      while (match(t, /^\[[^]]*\] */)) {
+        g = substr(t, 1, RLENGTH); sub(/ +$/, "", g)
+        if (g == "[✗]" || g == "[✓]") return substr(g, 2, length(g) - 2)
+        if (index(g, "[↻") == 1) return "↻"
+        t = substr(t, RLENGTH + 1)
+      }
       return ""
     }
     function summary(s,   b, e) {
