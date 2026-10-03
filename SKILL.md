@@ -38,7 +38,7 @@ Write in the user's language (templates ship in PT-BR and English via `--lang`; 
 - `TODO.md`: only when active (frontmatter `active: true`).
 - `LEARNINGS.md`: one line per fact as `- [YYYY-MM-DD] [tag] fact — consequence`. Only real corrections, version/API/CI gotchas, or decisions with rationale.
 - `BUGS.md` (tier 3): one block per bug with the literal error message (so `grep` finds it).
-- `WORKFLOW.md` (tier 3): only if the user adopted an explicit process.
+- `WORKFLOW.md` (tier 3): only if the user adopted an explicit process. One numbered step per line, `step → verify: check`, where the check is a command or an observable result, never "it works".
 
 ## 4. Import policy (don't import everything)
 
