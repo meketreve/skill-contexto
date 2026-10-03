@@ -13,7 +13,8 @@ tier: 2
 
 ## Next phase
 
-<!-- what the next session should do first, with file/entry point -->
+<!-- what the next session should do first, with file/entry point,
+     and when the phase is over: → verify: `command` passes / what to observe -->
 
 ## Pending and blockers
 

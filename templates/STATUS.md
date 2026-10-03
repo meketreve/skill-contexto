@@ -13,7 +13,8 @@ tier: 2
 
 ## Próxima fase
 
-<!-- o que a próxima sessão deve fazer primeiro, com arquivo/ponto de partida -->
+<!-- o que a próxima sessão deve fazer primeiro, com arquivo/ponto de partida,
+     e quando a fase acaba: → verify: `comando` passa / o que observar -->
 
 ## Pendências e bloqueios
 

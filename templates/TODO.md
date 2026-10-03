@@ -15,6 +15,8 @@ active: false
 
 ## Depois
 
+<!-- Achou algo fora do pedido (código morto, bug vizinho)? Anota aqui, não conserta agora. -->
+
 - [ ]
 
 ## Ideias / talvez

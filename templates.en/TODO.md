@@ -15,6 +15,8 @@ active: false
 
 ## Later
 
+<!-- Found something outside the request (dead code, a nearby bug)? Note it here, don't fix it now. -->
+
 - [ ]
 
 ## Ideas / maybe
