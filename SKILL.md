@@ -36,7 +36,7 @@ Write in the user's language (templates ship in PT-BR and English via `--lang`; 
 - `MAP.md`: main flows (`X → Y → Z`) and whatever isn't obvious from names. Commands were already extracted by the script.
 - `STATUS.md`: "current state" in 2–4 lines and "next phase" with file/entry point. The auto block already holds raw `git log`/`git status`.
 - `TODO.md`: only when active (frontmatter `active: true`).
-- `LEARNINGS.md`: one line per fact as `- [YYYY-MM-DD] [tag] fact — consequence`. Only real corrections, version/API/CI gotchas, or decisions with rationale.
+- `LEARNINGS.md`: one line per fact as `- [YYYY-MM-DD] [tag] fact — consequence`. Only real corrections, version/API/CI gotchas, or decisions with rationale. A line that records something tried or decided carries a verdict after the tag: `[✓]` tested and kept, `[✗]` tried and rejected (the reason goes after —), `[↻ YYYY-MM-DD]` superseded by that day's entry. Never delete a `[✗]`: it is what stops the next session from trying it again.
 - `BUGS.md` (tier 3): one block per bug with the literal error message (so `grep` finds it).
 - `WORKFLOW.md` (tier 3): only if the user adopted an explicit process. One numbered step per line, `step → verify: check`, where the check is a command or an observable result, never "it works".
 
@@ -54,7 +54,7 @@ In opencode, root `CLAUDE.md` is read as a global fallback; alternatively, decla
 
 - `STATUS.md` / `TODO.md`: 60 lines max. `LEARNINGS.md`: 100. `MAP.md`: 60. **Counted outside `<!-- auto:start -->…<!-- auto:end -->` blocks** — the auto block is the script's, so it neither counts nor gets trimmed by hand.
 - Measure: `awk '/<!-- auto:start -->/{s=1} !s{n++} /<!-- auto:end -->/{s=0} END{print n+0}' FILE`.
-- Past that, summarize the manual part into 1 line or delete — `git log` is the source of truth.
+- Past that, summarize the manual part into 1 line or delete — `git log` is the source of truth. Exception: `[✗]` lines in LEARNINGS are never deleted (shrink them to the gist instead).
 
 ## 6. Hooks (optional)
 

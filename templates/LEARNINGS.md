@@ -5,7 +5,8 @@ tier: 2
 
 # Aprendizados
 
-<!-- TETO: 100 linhas fora de blocos auto. Uma linha por fato, formato grepável: `- [AAAA-MM-DD] [tag] fato — consequência`. -->
+<!-- TETO: 100 linhas fora de blocos auto. Uma linha por fato, formato grepável: `- [AAAA-MM-DD] [tag] fato — consequência`.
+     O que foi tentado ou decidido leva veredito depois da tag: [✓] testado e mantido, [✗] tentado e descartado (nunca apagar), [↻ AAAA-MM-DD] substituído pela entrada dessa data. -->
 
 ## Preferências do usuário
 
@@ -21,4 +22,6 @@ tier: 2
 
 ## Decisões e o porquê
 
-- [AAAA-MM-DD] [decisão] o quê — porquê
+- [AAAA-MM-DD] [decisão] [✓] o quê — porquê e como foi testado
+- [AAAA-MM-DD] [decisão] [✗] o que foi tentado — por que não serviu
+- [AAAA-MM-DD] [decisão] [↻ AAAA-MM-DD] o que valia — trocado pela entrada dessa data

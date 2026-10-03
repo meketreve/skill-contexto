@@ -29,6 +29,11 @@ tier: 2
 - `TODO.md` adds `active: true|false` — import only while active.
 - `<!-- auto:start --> … <!-- auto:end -->` blocks belong to the script (date, `git log`, commands, `ls`). The model never edits inside them by hand; the script never touches anything outside them.
 - One line per fact, with greppable tags: `- [2026-09-28] [pytest] fact — consequence`. Fill in the user's language (templates ship in PT-BR and English).
+- Verdict, on lines that record something tried or decided (plain facts like preferences and gotchas go without): `[✓]` tested and kept, `[✗]` tried and rejected — the reason after the dash, `[↻ YYYY-MM-DD]` superseded by that day's entry. Symbols, not words, so the same grep works in both languages:
+  - what failed before: `grep -n '\[✗\]' .claude/context/LEARNINGS*.md`
+  - what holds today in an area: `grep -n '\[rede\] \[✓\]' .claude/context/LEARNINGS*.md`
+  - what changed: `grep -n '\[↻' .claude/context/LEARNINGS*.md`
+- Superseding: mark the old line `[↻ date]` and write the new one; don't edit the old line into the new decision, or the history of why is lost. At the budget, a `[↻]` line can shrink to its gist — a `[✗]` line stays.
 - `BUGS.md`: each block opens with `## YYYY-MM-DD — short title` and contains the literal error message.
 
 ## Imports (opencode and claude)
@@ -45,4 +50,4 @@ tier: 2
 
 - `STATUS.md` / `TODO.md`: 60 lines. `LEARNINGS.md`: 100. `MAP.md`: 60 — all counted **outside the auto blocks**. The script owns what is inside `<!-- auto:start -->…<!-- auto:end -->`; it does not count toward the budget and is never trimmed by hand (it would come back on the next `init.sh` run anyway).
 - Measure the manual part: `awk '/<!-- auto:start -->/{s=1} !s{n++} /<!-- auto:end -->/{s=0} END{print n+0}' FILE`.
-- Past the budget: summarize "Done" into 1 line or delete; `git log` keeps the rest.
+- Past the budget: summarize "Done" into 1 line or delete; `git log` keeps the rest. `[✗]` lines are the exception — shrink, never delete.

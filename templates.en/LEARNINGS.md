@@ -5,7 +5,8 @@ tier: 2
 
 # Learnings
 
-<!-- BUDGET: 100 lines outside auto blocks. One line per fact, greppable format: `- [YYYY-MM-DD] [tag] fact — consequence`. -->
+<!-- BUDGET: 100 lines outside auto blocks. One line per fact, greppable format: `- [YYYY-MM-DD] [tag] fact — consequence`.
+     What was tried or decided gets a verdict after the tag: [✓] tested and kept, [✗] tried and rejected (never delete), [↻ YYYY-MM-DD] superseded by that day's entry. -->
 
 ## User preferences
 
@@ -21,4 +22,6 @@ tier: 2
 
 ## Decisions and why
 
-- [YYYY-MM-DD] [decision] what — why
+- [YYYY-MM-DD] [decision] [✓] what — why, and how it was tested
+- [YYYY-MM-DD] [decision] [✗] what was tried — why it didn't work
+- [YYYY-MM-DD] [decision] [↻ YYYY-MM-DD] what used to hold — replaced by that day's entry

@@ -17,7 +17,7 @@ Accepts `--tier 1|2|3` to force, `--lang en|pt`, and `--yes` to never prompt.
 - `MAP.md`: `X → Y → Z` flows, the non-obvious. Commands were already extracted.
 - `STATUS.md`: current state (2–4 lines) + next phase with entry point.
 - `TODO.md`: set (`active: true`) only for a 3+ step task without tracker.
-- `LEARNINGS.md`: one line per fact `- [YYYY-MM-DD] [tag] fact — consequence`.
+- `LEARNINGS.md`: one line per fact `- [YYYY-MM-DD] [tag] fact — consequence`; tried/decided lines add a verdict after the tag: `[✓]` kept, `[✗]` rejected, `[↻ YYYY-MM-DD]` superseded.
 
 3. Never edit `<!-- auto:start -->` blocks; never create a file the tier doesn't call for; respect budgets, counted outside auto blocks (STATUS/TODO/MAP 60, LEARNINGS 100).
 
