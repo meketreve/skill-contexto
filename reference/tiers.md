@@ -33,6 +33,7 @@ tier: 2
   - what failed before: `grep -n '\[✗\]' .claude/context/LEARNINGS*.md`
   - what holds today in an area: `grep -n '\[rede\] \[✓\]' .claude/context/LEARNINGS*.md`
   - what changed: `grep -n '\[↻' .claude/context/LEARNINGS*.md`
+- Entry-level recall: `scripts/index.sh` (table of contents), `index.sh TERM...` (matching entries, all their lines, newest first), `index.sh -x` (only `[✗]`). Reads `LEARNINGS*.md` and `BUGS*.md`, writes nothing.
 - Superseding: mark the old line `[↻ date]` and write the new one; don't edit the old line into the new decision, or the history of why is lost. At the budget, a `[↻]` line can shrink to its gist — a `[✗]` line stays.
 - `BUGS.md`: each block opens with `## YYYY-MM-DD — short title` and contains the literal error message.
 

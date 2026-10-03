@@ -12,20 +12,20 @@ die() { warn "FAIL: $*"; fail=1; }
 ok() { echo "pre-commit: ok $*"; }
 
 # 1. Syntax
-for s in "$REPO/scripts/init.sh" "$REPO/scripts/install.sh"; do
+for s in "$REPO/scripts/init.sh" "$REPO/scripts/install.sh" "$REPO/scripts/index.sh"; do
   bash -n "$s" || die "syntax error in ${s#$REPO/}"
 done
 ok "bash -n"
 
 # 2. Executable bit
-for s in scripts/init.sh scripts/install.sh .githooks/pre-commit; do
+for s in scripts/init.sh scripts/install.sh scripts/index.sh .githooks/pre-commit; do
   [ -x "$REPO/$s" ] || die "missing +x: $s (run: chmod +x $s)"
 done
 ok "+x"
 
 # 3. ShellCheck (skip if not installed — CI enforces)
 if command -v shellcheck >/dev/null 2>&1; then
-  shellcheck -S warning "$REPO/scripts/init.sh" "$REPO/scripts/install.sh" || die "shellcheck warnings"
+  shellcheck -S warning "$REPO/scripts/init.sh" "$REPO/scripts/install.sh" "$REPO/scripts/index.sh" || die "shellcheck warnings"
   ok "shellcheck"
 else
   warn "skip shellcheck (not installed — CI will check)"

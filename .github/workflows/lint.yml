@@ -10,11 +10,11 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
       - name: Syntax
-        run: bash -n scripts/init.sh && bash -n scripts/install.sh && bash -n .githooks/pre-commit
+        run: bash -n scripts/init.sh && bash -n scripts/install.sh && bash -n scripts/index.sh && bash -n .githooks/pre-commit
       - name: ShellCheck
-        run: shellcheck -S warning scripts/init.sh scripts/install.sh .githooks/pre-commit
+        run: shellcheck -S warning scripts/init.sh scripts/install.sh scripts/index.sh .githooks/pre-commit
       - name: Executable bit
-        run: test -x scripts/init.sh && test -x scripts/install.sh && test -x .githooks/pre-commit
+        run: test -x scripts/init.sh && test -x scripts/install.sh && test -x scripts/index.sh && test -x .githooks/pre-commit
       - name: Sync checks (templates, commands, frontmatter)
         run: |
           diff <(ls templates | sort) <(ls templates.en | sort)
@@ -49,6 +49,16 @@ jobs:
           grep -q "^active: true" /tmp/smoke-en/.claude/context/TODO.md
           grep -q "^updated: $(date +%F)" /tmp/smoke-en/.claude/context/STATUS.md
           grep -q "^tier: 2" /tmp/smoke-en/.claude/context/STATUS.md
+      - name: index.sh (entries, verdicts, multi-line match)
+        run: |
+          L=/tmp/smoke-en/.claude/context/LEARNINGS.md
+          printf -- '- [2026-08-20] [net] [✗] free the name on close — never fires on minimize\n' >> "$L"
+          printf -- '- [2026-08-23] [net] [✓] app heartbeat every 5 s\n  frees the name — tested on tablet\n' >> "$L"
+          ./scripts/index.sh --dir /tmp/smoke-en | grep -q "LEARNINGS.md — 2 entries"
+          ./scripts/index.sh --dir /tmp/smoke-en | grep -q "(✓1 ✗1)"
+          ./scripts/index.sh --dir /tmp/smoke-en -x | grep -q "on close"
+          ! ./scripts/index.sh --dir /tmp/smoke-en -x | grep -q "heartbeat"
+          ./scripts/index.sh --dir /tmp/smoke-en tablet | grep -q "LEARNINGS.md:.*heartbeat"
       - name: install.sh matrix
         run: |
           ./scripts/install.sh --list

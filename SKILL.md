@@ -46,6 +46,7 @@ Write in the user's language (templates ship in PT-BR and English via `--lang`; 
 - `LEARNINGS.md`: imported at tier 2+; at tier 1, consult on demand via grep.
 - `TODO.md`: imported only while `active: true`.
 - `BUGS.md`: never imported — `grep` the error message when needed.
+- Recall from anything not imported (`BUGS.md`, a big `LEARNINGS*.md`): `<skill-dir>/scripts/index.sh` first, before reading or grepping blind. No args prints a table of contents (entries per section, verdict counts, line numbers to `Read` with offset); `index.sh TERM...` lists matching **entries** — whole multi-line entries, one line each, newest first; `-x` lists only `[✗]`, what was already tried and rejected. It is printed fresh on every call and never saved, so it can't go stale. Exact error text is still a job for `grep`.
 - `WORKFLOW.md`: imported only if it exists.
 
 In opencode, root `CLAUDE.md` is read as a global fallback; alternatively, declare the same files in the `instructions` field of `opencode.json`.
