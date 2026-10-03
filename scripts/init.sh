@@ -334,4 +334,13 @@ echo "created/verified in $CTX:"
 ls "$CTX"
 echo "---"
 echo "left blank to complete: MAP (flows), STATUS (state/next phase)"
-if [ "$TIER_N" -ge 2 ]; then echo "TODO is active: false — enable for a 3+ step task."; fi
+# Report the REAL flag, not a guess: a re-run over an ongoing TODO used to
+# print "active: false" while the file said true, which reads as if the script
+# had just deactivated it (it never touches `active:` — see copy_missing).
+if [ "$TIER_N" -ge 2 ] && [ -f "$CTX/TODO.md" ]; then
+  if grep -qE '^active:[[:space:]]*true' "$CTX/TODO.md"; then
+    echo "TODO is active: true — set it back to false when the queue empties."
+  else
+    echo "TODO is active: false — enable for a 3+ step task."
+  fi
+fi
