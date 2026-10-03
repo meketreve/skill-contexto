@@ -20,6 +20,8 @@ ok "bash -n"
 # 2. Executable bit
 for s in scripts/init.sh scripts/install.sh scripts/index.sh .githooks/pre-commit; do
   [ -x "$REPO/$s" ] || die "missing +x: $s (run: chmod +x $s)"
+  # the index is what CI checks out; with core.fileMode=false chmod never reaches it
+  git ls-files -s -- "$s" | grep -q '^100755' || die "missing +x in git index: $s (run: git update-index --chmod=+x $s)"
 done
 ok "+x"
 
