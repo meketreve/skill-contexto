@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # init.sh — 3-tier context scaffold, zero tokens spent.
-# Usage: init.sh [--tier auto|1|2|3] [--dir PROJECT] [--lang auto|pt|en] [--yes] [--todo] [--migrate]
+# Usage: init.sh [--tier auto|1|2|3] [--dir PROJECT] [--lang auto|pt|en] [--yes] [--todo] [--migrate] [--index]
 # Only creates missing files; never overwrites manual content.
 # <!-- auto:start --> … <!-- auto:end --> blocks belong to the script.
 set -euo pipefail
@@ -11,13 +11,16 @@ LANG_OPT="${CONTEXTO_LANG:-auto}"
 ASSUME="${CONTEXTO_ASSUME_MULTISESSAO:-}"
 WANT_TODO=0
 MIGRATE=0
+WANT_INDEX=0
 
 usage() {
-  echo "usage: init.sh [--tier auto|1|2|3] [--dir DIR] [--lang auto|pt|en] [--yes] [--todo] [--migrate]"
+  echo "usage: init.sh [--tier auto|1|2|3] [--dir DIR] [--lang auto|pt|en] [--yes] [--todo] [--migrate] [--index]"
   echo "  --lang picks the template language (default: auto from \$LANG, pt* → pt, else en)"
   echo "  --yes  never prompt (tier 1-2 tie: commits on 2+ days → 2, else 1)"
   echo "  --todo create TODO.md (tier 2+; only for a 3+ step task without an issue tracker)"
   echo "  --migrate add frontmatter/auto block to old-format files, keeping the text (backup: .bak)"
+  echo "  --index  add a code index to MAP.md (tables/RLS, SQL functions, edge functions, routes);"
+  echo "           once added, every run refreshes it"
 }
 
 while [ $# -gt 0 ]; do
@@ -28,6 +31,7 @@ while [ $# -gt 0 ]; do
     --yes) ASSUME="0"; shift ;;
     --todo) WANT_TODO=1; shift ;;
     --migrate) MIGRATE=1; shift ;;
+    --index) WANT_INDEX=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 1 ;;
   esac
@@ -55,11 +59,17 @@ if [ "$LANG_N" = "en" ]; then
   L_TEST_ALL="Test (all)"; L_TEST_ONE="Test (single)"; L_RUN="Run"
   L_NO_COMMITS="(no commits)"; L_NO_GIT="(no git)"; L_HEAD="# Project"
   L_FILE="<file>"; L_FILES="<files>"
+  L_IDX_HEAD="Code index (auto)"; L_IDX_TABLES="Tables"; L_IDX_FILES="files"; L_IDX_FUNCS="SQL functions"
+  L_IDX_EDGE="Edge functions"; L_IDX_ROUTES="Routes"; L_IDX_RLS="rls"; L_IDX_NORLS="NO-RLS"
+  L_IDX_EMPTY="(nothing detected: no migrations/*.sql, edge functions or routes)"
 else
   L_GEN="gerado em"; L_TOP="primeiro nível"; L_ACT="Ação"; L_CMD="Comando"
   L_TEST_ALL="Teste (tudo)"; L_TEST_ONE="Teste (um só)"; L_RUN="Rodar"
   L_NO_COMMITS="(sem commits)"; L_NO_GIT="(sem git)"; L_HEAD="# Projeto"
   L_FILE="<arquivo>"; L_FILES="<arquivos>"
+  L_IDX_HEAD="Índice do código (auto)"; L_IDX_TABLES="Tabelas"; L_IDX_FILES="arquivos"; L_IDX_FUNCS="Funções SQL"
+  L_IDX_EDGE="Edge functions"; L_IDX_ROUTES="Rotas"; L_IDX_RLS="rls"; L_IDX_NORLS="SEM-RLS"
+  L_IDX_EMPTY="(nada detectado: sem migrations/*.sql, edge functions ou rotas)"
 fi
 
 mkdir -p "$CTX"
@@ -353,6 +363,150 @@ map_cmd_block() {
   echo '```'
 }
 
+# --- code index (opt-in: --index, then kept fresh on every run) ---
+# A second auto block in MAP.md, `<!-- auto:start index -->`: where tables, SQL
+# functions, edge functions and routes live, so a session finds them without a
+# search. grep/awk only — never stale, never a graph to rebuild.
+INDEX_START='<!-- auto:start index -->'
+INDEX_END='<!-- auto:end index -->'
+
+# Source files, one relative path per line: tracked files in a repo, else find.
+src_files() {
+  local re d
+  local -a prune=()
+  re="(^|/)($(IFS='|'; echo "${SKIP_DIRS[*]}" | sed 's/\./\\./g')|dist|target|vendor)/"
+  if [ "$IN_GIT_IDX" = 1 ]; then
+    git -C "$DIR" ls-files 2>/dev/null | grep -Ev "$re" || true
+  else
+    for d in "${SKIP_DIRS[@]}" dist target vendor; do prune+=(-name "$d" -o); done
+    (cd "$DIR" && find . \( "${prune[@]}" -false \) -prune -o -type f -print 2>/dev/null | sed 's|^\./||')
+  fi
+}
+
+# Prints at most $1 lines of stdin, then "… +N".
+cap() { awk -v max="$1" 'NR <= max { print } END { if (NR > max) print "… +" NR - max }'; }
+
+# SQL migrations: tables (first definition, RLS on?, policy count) and functions
+# (last definition wins: a later migration redefines). Case-insensitive, POSIX awk.
+sql_index() { # files...
+  LC_ALL=C awk -v L_RLS="$L_IDX_RLS" -v L_NORLS="$L_IDX_NORLS" '
+    function ident(s,   t) {
+      sub(/^[ \t]*/, "", s)
+      if (!match(s, /^[A-Za-z0-9_."]+/)) return ""
+      t = tolower(substr(s, 1, RLENGTH)); gsub(/"/, "", t); sub(/^public\./, "", t)
+      return t
+    }
+    function short(f,   n, p) { n = split(f, p, "/"); return p[n] }
+    {
+      l = tolower($0)
+      if (pending && match(l, /^[ \t]*on[ \t]+/)) { pol[ident(substr($0, RSTART + RLENGTH))]++; pending = 0; next }
+      if (match(l, /create[ \t]+(or[ \t]+replace[ \t]+)?function[ \t]+/)) {
+        n = ident(substr($0, RSTART + RLENGTH)); if (n != "") { if (!(n in fn)) fo[++nf] = n; fn[n] = short(FILENAME) ":" FNR }
+      } else if (match(l, /create[ \t]+table[ \t]+(if[ \t]+not[ \t]+exists[ \t]+)?/)) {
+        n = ident(substr($0, RSTART + RLENGTH)); if (n != "" && !(n in tb)) { to[++nt] = n; tb[n] = short(FILENAME) ":" FNR }
+      } else if (match(l, /create[ \t]+policy[ \t]/)) {
+        if (match(l, /[ \t]on[ \t]+/)) pol[ident(substr($0, RSTART + RLENGTH))]++; else pending = 1
+      }
+      if (match(l, /alter[ \t]+table[ \t]+(if[ \t]+exists[ \t]+)?(only[ \t]+)?/)) {
+        n = ident(substr($0, RSTART + RLENGTH)); if (l ~ /enable[ \t]+row[ \t]+level[ \t]+security/) { rls[n] = 1; pg = 1 }
+      }
+    }
+    END {
+      for (n in pol) pg = 1
+      # RLS/policy column only where the database has them (Postgres), not SQLite/D1.
+      for (i = 1; i <= nt; i++) { n = to[i]
+        if (pg) printf "T\t%s  %s %dp  %s\n", n, (n in rls) ? L_RLS : L_NORLS, pol[n], tb[n]
+        else printf "T\t%s  %s\n", n, tb[n] }
+      for (i = 1; i <= nf; i++) { n = fo[i]; printf "F\t%s  %s\n", n, fn[n] }
+    }' "$@"
+}
+
+index_block() {
+  local files sql edge routes code fsr out n f
+  local -a sqlf=()
+  IN_GIT_IDX=0
+  git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 && IN_GIT_IDX=1
+  files="$(src_files)"
+  echo "$L_GEN: $TODAY"
+
+  # 1. Database: *.sql under a migrations/ dir, in name order (numbered).
+  sql="$(printf '%s\n' "$files" | grep -E '(^|/)migrations/.*\.sql$' | sort || true)"
+  if [ -n "$sql" ]; then
+    while IFS= read -r f; do sqlf+=("$DIR/$f"); done <<< "$sql"
+    out="$(sql_index "${sqlf[@]}")"
+    n="$(printf '%s\n' "$sql" | wc -l | tr -d ' ')"
+    echo ""
+    echo "$L_IDX_TABLES ($(dirname "$(printf '%s\n' "$sql" | head -n 1)")/, $n $L_IDX_FILES):"
+    printf '%s\n' "$out" | awk -F'\t' '$1 == "T" { print "- " $2 }' | cap 25
+    if printf '%s\n' "$out" | grep -q '^F'; then
+      echo "$L_IDX_FUNCS:"
+      printf '%s\n' "$out" | awk -F'\t' '$1 == "F" { print "- " $2 }' | cap 25
+    fi
+  fi
+
+  # 2. Edge/serverless functions: supabase|netlify/functions/<name>/index.*
+  edge="$(printf '%s\n' "$files" | grep -E '^(supabase|netlify)/functions/[^_/][^/]*/index\.[jt]s$' | sed -E 's|/index\.[jt]s$||' | sort -u || true)"
+  if [ -n "$edge" ]; then
+    echo ""
+    echo "$L_IDX_EDGE:"
+    printf '%s\n' "$edge" | awk '{ n = split($0, p, "/"); print "- " p[n] "  " $0 "/" }' | cap 15
+  fi
+
+  # 3. Routes: React Router / route config `path:`, HTTP handlers (app.get('/x')),
+  #    SvelteKit and Next.js app router by file path. Tests and stories skipped.
+  code="$(printf '%s\n' "$files" | grep -E '\.(tsx?|jsx?|mjs)$' | grep -Ev '(\.test|\.spec|\.stories)\.|(^|/)(tests?|__tests__|e2e)/' || true)"
+  routes=""
+  if [ -n "$code" ]; then
+    routes="$(cd "$DIR" && printf '%s\n' "$code" | tr '\n' '\0' | xargs -0 grep -nE \
+      "(<Route[^>]*[[:space:]]path=|[[:space:]{,]path:[[:space:]]*)[\"'][^\"']*[\"']|(app|router|api|route|server|fastify)\.(get|post|put|patch|delete|all)\([[:space:]]*[\"'\`]/" 2>/dev/null \
+      | LC_ALL=C awk '{
+          loc = $0; sub(/:[^:]*$/, "", loc)
+          if (match(loc, /^[^:]*:[0-9]+/)) loc = substr(loc, 1, RLENGTH)
+          line = $0; sub(/^[^:]*:[0-9]+:/, "", line)
+          if (match(line, /\.(get|post|put|patch|delete|all)\([ \t]*["\047`]\/[^"\047`]*/)) {
+            s = substr(line, RSTART + 1, RLENGTH - 1); m = toupper(substr(s, 1, index(s, "(") - 1))
+            p = substr(s, index(s, "(") + 1); sub(/^[ \t]*["\047`]/, "", p); print m " " p "  " loc
+          } else if (match(line, /path[ \t]*[:=][ \t]*\{?[ \t]*["\047][^"\047]*/)) {
+            p = substr(line, RSTART, RLENGTH); sub(/^path[ \t]*[:=][ \t]*\{?[ \t]*["\047]/, "", p)
+            if (p == "" || p == "*" || p ~ /^\./ || p ~ /\.[a-z]+$/) next
+            print p "  " loc
+          }
+        }' || true)"
+  fi
+  fsr="$(printf '%s\n' "$files" | grep -E '(^|/)src/routes/(.*/)?\+(page\.svelte|server\.[jt]s)$|(^|/)app/(.*/)?(page|route)\.[jt]sx?$' \
+    | awk '{ p = $0; sub(/^.*(src\/routes|app)/, "", p); sub(/\/[^\/]*$/, "", p); if (p == "") p = "/"; print p "  " $0 }' || true)"
+  routes="$(printf '%s\n%s\n' "$routes" "$fsr" | grep -v '^$' || true)"
+  if [ -n "$routes" ]; then
+    echo ""
+    echo "$L_IDX_ROUTES:"
+    printf '%s\n' "$routes" | awk '!seen[$0]++ { print "- " $0 }' | cap 30
+  fi
+
+  if [ -z "$sql$edge$routes" ]; then
+    echo ""
+    echo "$L_IDX_EMPTY"
+  fi
+}
+
+# Adds the index block at the end of MAP.md with --index; once there, refreshes
+# it on every run. Never touches the rest of the file.
+fill_index() { # map
+  local f="$1" tmp
+  if ! grep -qF "$INDEX_START" "$f"; then
+    [ "$WANT_INDEX" = 1 ] || return 0
+    printf '\n## %s\n\n%s\n%s\n' "$L_IDX_HEAD" "$INDEX_START" "$INDEX_END" >> "$f"
+  fi
+  tmp="$(mktemp)"
+  index_block > "$tmp.body"
+  awk -v body="$tmp.body" -v s="$INDEX_START" -v e="$INDEX_END" '
+    $0 == s { print; while ((getline line < body) > 0) print line; close(body); skip = 1; next }
+    $0 == e { skip = 0 }
+    !skip { print }
+  ' "$f" > "$tmp.new"
+  mv "$tmp.new" "$f"
+  rm -f "$tmp" "$tmp.body"
+}
+
 ensure_claude_imports() { # tier
   local claude="$DIR/CLAUDE.md" t="$1"
   local -a want=("@.claude/context/MAP.md")
@@ -379,6 +533,7 @@ copy_missing "$TPL/MAP.md" "$CTX/MAP.md"
 check_format "$CTX/MAP.md" "$TPL/MAP.md"
 stamp_frontmatter "$CTX/MAP.md" "$TIER_N"
 map_cmd_block | replace_auto "$CTX/MAP.md"
+fill_index "$CTX/MAP.md"
 
 if [ "$TIER_N" -ge 2 ]; then
   copy_missing "$TPL/STATUS.md" "$CTX/STATUS.md"

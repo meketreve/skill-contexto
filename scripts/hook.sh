@@ -44,7 +44,7 @@ case "$REL" in
       LEARNINGS.md) max=100 ;;
       *) exit 0 ;;
     esac
-    n="$(awk '/<!-- auto:start -->/{s=1} !s{n++} /<!-- auto:end -->/{s=0} END{print n+0}' "$FILE" 2>/dev/null)"
+    n="$(awk '/<!-- auto:start/{s=1} !s{n++} /<!-- auto:end/{s=0} END{print n+0}' "$FILE" 2>/dev/null)"
     [ "${n:-0}" -gt "$max" ] || exit 0
     say PostToolUse "$name: $n lines outside auto blocks, budget $max. Summarize the manual part into 1 line or delete (git log keeps history); [✗] lines in LEARNINGS only shrink. Never trim inside <!-- auto:start --> blocks."
     ;;

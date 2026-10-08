@@ -29,6 +29,8 @@ Never create a file the tier doesn't call for. Deciding **not** to create is par
 
 `init.sh` only creates missing files, never overwrites, and fills the `<!-- auto:start -->` blocks (date, `git log`, manifest commands, top-level `ls`) + ensures the imports in `CLAUDE.md`. Don't redo that by hand.
 
+**Code index (opt-in):** `init.sh --index` adds a second script-owned block to `MAP.md` (`<!-- auto:start index -->`): tables with RLS on/off and policy count, SQL functions (from `migrations/*.sql`), edge functions (`supabase|netlify/functions/*`) and routes (React Router `path`, `app.get('/x')`-style handlers, SvelteKit/Next.js file routes), each with `file:line`. Once added, every run refreshes it, so it never goes stale. Offer it when the project has migrations, edge functions or routes and sessions keep searching for where they live; skip it on a tiny project, since it is imported every session. It is grep, not a graph: for call sites and definitions on demand, use the LSP tool. A table marked `NO-RLS` in a Postgres project is a finding to raise, not noise.
+
 It warns `old format:` for a context file with no frontmatter or no auto block (written before the script) — such a file is never stamped or filled. Rerun with `--migrate` to add the template's frontmatter on top and its auto section at the end, keeping the text (backup in `FILE.bak`).
 
 ## 3. What the model fills in (only the ~20% needing judgment)
@@ -56,7 +58,7 @@ In opencode, root `CLAUDE.md` is read as a global fallback; alternatively, decla
 ## 5. Budgets (context spending)
 
 - `STATUS.md` / `TODO.md`: 60 lines max. `LEARNINGS.md`: 100. `MAP.md`: 60. **Counted outside `<!-- auto:start -->…<!-- auto:end -->` blocks** — the auto block is the script's, so it neither counts nor gets trimmed by hand.
-- Measure: `awk '/<!-- auto:start -->/{s=1} !s{n++} /<!-- auto:end -->/{s=0} END{print n+0}' FILE`.
+- Measure: `awk '/<!-- auto:start/{s=1} !s{n++} /<!-- auto:end/{s=0} END{print n+0}' FILE`.
 - Past that, summarize the manual part into 1 line or delete — `git log` is the source of truth. Exception: `[✗]` lines in LEARNINGS are never deleted (shrink them to the gist instead).
 
 ## 6. Hooks (optional)

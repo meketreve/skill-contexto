@@ -66,6 +66,34 @@ jobs:
           grep -q "@.claude/context/TODO.md" /tmp/smoke-en/CLAUDE.md   # imported once active
           grep -q "^updated: $(date +%F)" /tmp/smoke-en/.claude/context/STATUS.md
           grep -q "^tier: 2" /tmp/smoke-en/.claude/context/STATUS.md
+      - name: init.sh --index (code index block in MAP.md)
+        run: |
+          D=/tmp/smoke-idx; rm -rf $D
+          mkdir -p $D/supabase/migrations $D/supabase/functions/pagar $D/supabase/functions/_shared $D/src $D/api
+          printf 'create table public.pedidos (id int);\nalter table pedidos enable row level security;\ncreate policy "dono le"\n  on public.pedidos for select using (true);\ncreate table bairros (id int);\n' > $D/supabase/migrations/0001_init.sql
+          printf 'create or replace function public.criar_pedido(p jsonb) returns int as $$ select 1 $$ language sql;\n' > $D/supabase/migrations/0002_rpc.sql
+          : > $D/supabase/functions/pagar/index.ts; : > $D/supabase/functions/_shared/index.ts
+          printf '<Route path="/r/:slug" element={<Loja />} />\n<Route path="*" element={<NotFound />} />\n' > $D/src/App.tsx
+          printf "app.post('/webhook', h)\n" > $D/api/server.ts
+          ./scripts/init.sh --tier 2 --lang en --yes --index --dir $D
+          M=$D/.claude/context/MAP.md
+          grep -q '<!-- auto:start index -->' $M
+          grep -q 'pedidos  rls 1p  0001_init.sql:1' $M          # policy "on" on the next line counts
+          grep -q 'bairros  NO-RLS 0p' $M
+          grep -q 'criar_pedido  0002_rpc.sql:1' $M
+          grep -q 'pagar  supabase/functions/pagar/' $M
+          ! grep -q '_shared' $M                                  # helper dirs are not functions
+          grep -q '/r/:slug  src/App.tsx:1' $M
+          ! grep -q -- '- \*  ' $M                                # wildcard route skipped
+          grep -q 'POST /webhook  api/server.ts:1' $M
+          # refreshed without the flag once present; budget awk skips both auto blocks
+          printf 'create table extra (id int);\n' > $D/supabase/migrations/0003_extra.sql
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $D
+          grep -q 'extra  NO-RLS' $M
+          test "$(grep -c '<!-- auto:start index -->' $M)" = 1
+          ! awk '/<!-- auto:start/{s=1} !s{print} /<!-- auto:end/{s=0}' $M | grep -q 'pedidos'
+          # no --index, no block
+          ! grep -q 'auto:start index' /tmp/smoke-pt/.claude/context/MAP.md
       - name: index.sh (entries, verdicts, multi-line match)
         run: |
           L=/tmp/smoke-en/.claude/context/LEARNINGS.md

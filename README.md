@@ -72,6 +72,7 @@ opencode via Claude-compatible plugin; hooks remind, never auto-write).
 ## Conventions
 
 - Frontmatter `updated/tier` (script-owned) + `<!-- auto:start -->` blocks (script-only).
+- Optional code index in `MAP.md` (`init.sh --index`): tables + RLS, SQL functions, edge functions and routes with `file:line`, regenerated on every run — a grep index, not a graph.
 - One line per fact with tags: `- [2026-09-28] [pytest] fact — consequence`.
 - `BUGS.md` is never imported — `grep` the error message, or `scripts/index.sh` for a table of contents and entry-level search (`index.sh TERM...`, `index.sh -x` for what was rejected).
 - Budgets: STATUS/TODO 60 lines, LEARNINGS 100, MAP 60 — counted outside the `<!-- auto -->` blocks, which belong to the script.

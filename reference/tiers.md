@@ -28,6 +28,7 @@ tier: 2
 
 - `TODO.md` adds `active: true|false` — import only while active. `init.sh` creates it only with `--todo`.
 - `<!-- auto:start --> … <!-- auto:end -->` blocks belong to the script (date, `git log`, commands, `ls`). The model never edits inside them by hand; the script never touches anything outside them.
+- `MAP.md` may carry a second script block, `<!-- auto:start index -->…<!-- auto:end index -->` (opt-in with `init.sh --index`, refreshed on every run once present): tables (RLS, policies), SQL functions, edge functions, routes — each `name  file:line`, capped per section. Same rule as any auto block: never edited by hand, never counted in the budget. Not a tier of its own — it fits tier 2 and 3 equally; on tier 1 it usually costs more than it saves.
 - One line per fact, with greppable tags: `- [2026-09-28] [pytest] fact — consequence`. Fill in the user's language (templates ship in PT-BR and English).
 - Verdict, on lines that record something tried or decided (plain facts like preferences and gotchas go without): `[✓]` tested and kept, `[✗]` tried and rejected — the reason after the dash, `[↻ YYYY-MM-DD]` superseded by that day's entry. Symbols, not words, so the same grep works in both languages:
   - what failed before: `grep -n '\[✗\]' .claude/context/LEARNINGS*.md`
@@ -50,5 +51,5 @@ tier: 2
 ## Budgets
 
 - `STATUS.md` / `TODO.md`: 60 lines. `LEARNINGS.md`: 100. `MAP.md`: 60 — all counted **outside the auto blocks**. The script owns what is inside `<!-- auto:start -->…<!-- auto:end -->`; it does not count toward the budget and is never trimmed by hand (it would come back on the next `init.sh` run anyway).
-- Measure the manual part: `awk '/<!-- auto:start -->/{s=1} !s{n++} /<!-- auto:end -->/{s=0} END{print n+0}' FILE`.
+- Measure the manual part: `awk '/<!-- auto:start/{s=1} !s{n++} /<!-- auto:end/{s=0} END{print n+0}' FILE`.
 - Past the budget: summarize "Done" into 1 line or delete; `git log` keeps the rest. `[✗]` lines are the exception — shrink, never delete.
