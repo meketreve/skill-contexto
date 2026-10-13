@@ -11,7 +11,7 @@ description: Bootstrap lean project context in 3 tiers (MAP/STATUS/TODO/LEARNING
 ~/.config/opencode/skills/contexto/scripts/init.sh --tier auto $ARGUMENTS
 # claude code: ~/.claude/skills/contexto/scripts/init.sh --tier auto $ARGUMENTS
 ```
-Accepts `--tier 1|2|3` to force, `--lang en|pt`, `--yes` to never prompt, `--todo` to create `TODO.md`, and `--migrate` for old-format files.
+Accepts `--tier auto|1|2|3` to force the tier, `--dir DIR`, `--lang auto|pt|en`, `--yes` to never prompt (a tier 1–2 tie still resolves to 2; `--tier 1` or `CONTEXTO_ASSUME_MULTISESSAO=0` forces one-shot), `--todo` to create `TODO.md`, `--migrate` for old-format files, `--index` for the code index in `MAP.md`, `--bundle` to mirror the imported files into `AGENTS.md`, and `--check` for a read-only report that exits 1 on problems.
 
 2. With the script output in hand, fill in ONLY what needs judgment (`contexto` skill `SKILL.md` rules, in the user's language):
 - `MAP.md`: `X → Y → Z` flows, the non-obvious. Commands were already extracted.

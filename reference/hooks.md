@@ -2,22 +2,24 @@
 
 Two independent layers. Git hooks are recommended; agent hooks are opt-in.
 
-Rule for both: **hooks remind or refresh `auto` blocks — they never
+Scope: the rule below and "always exit 0, never block" apply to the **context (agent) hooks**. `.githooks/pre-commit` is a lint gate: it **blocks on purpose** (`exit 1`) when a check fails.
+
+Rule for both layers: **hooks remind or refresh `auto` blocks — they never
 write manual sections** (`STATUS` state, `MAP` flows, `TODO` items,
 `LEARNINGS` facts). A hook that auto-writes judgment content defeats
-the script-first / model-second split. Hooks always exit 0 (never block).
+the script-first / model-second split. Context hooks always exit 0; they remind, they never block.
 
 ## 1. Git hooks (recommended)
 
 Repo ships `.githooks/pre-commit` (zero dependencies, mirrors CI):
 
-- `bash -n` on scripts + hook itself
-- `shellcheck` when installed (CI enforces when local skips)
+- `bash -n` on the 4 scripts (`init.sh`, `install.sh`, `index.sh`, `hook.sh`) — `.githooks/pre-commit` itself is only checked in CI
+- `shellcheck` when installed, also only on the 4 scripts (CI runs it on all 5 and covers what the local hook skipped)
 - `templates/` vs `templates.en/` same file set
 - `commands/context.md` vs `contexto.md` identical past line 8
 - frontmatter (`updated:`, `tier:`) in every template
 - `git diff --cached --check` (whitespace)
-- `+x` on `scripts/*.sh` + hook, in the working tree and in the git index
+- `+x` on the 4 scripts + hook, in the working tree and in the git index
 
 Enable once per clone (not committable by design):
 
@@ -31,7 +33,7 @@ Bypass is `git commit --no-verify` — reserved for emergencies, not drift.
 
 ### Claude Code (native)
 
-Project file `.claude/settings.json` (committable, team-shared):
+Personal example in `.claude/settings.local.json` (gitignored), for a skill installed at `$HOME/.claude/skills/contexto`:
 
 ```json
 {
@@ -75,15 +77,37 @@ Project file `.claude/settings.json` (committable, team-shared):
 }
 ```
 
+For a team, install with `install.sh --project` and keep only the `"$CLAUDE_PROJECT_DIR"` variant in the committed `.claude/settings.json` (personal paths stay in the `.local.json`):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "h=\"$CLAUDE_PROJECT_DIR\"/.claude/skills/contexto/scripts/hook.sh; [ -x \"$h\" ] && \"$h\"; exit 0",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+(`PostToolUse` uses the same command.) The `[ -x ]` guard keeps the hook silent where the skill isn't installed.
+
 Notes:
 
 - `SessionStart` is read-only: missing context → suggest, existing → show `git status`. Never runs `init.sh` by itself (scaffolding creates files — that decision stays with the user/model).
 - `PreToolUse` and `PostToolUse` both call `scripts/hook.sh`, which decides by event and path and stays silent otherwise:
   - **Recall by file** (PreToolUse, file outside `.claude/context/`): runs `index.sh` with the file's project-relative path (then its basename, unless generic like `index.ts`/`main.py`) and, when entries in `LEARNINGS*`/`BUGS*` cite it, shows up to 3 of them before the edit. Once per file per session (a marker in the session scratchpad), so repeated edits don't repeat it.
-  - **Budget** (PostToolUse, `STATUS`/`TODO`/`MAP`/`LEARNINGS.md`): measures the manual part (outside auto blocks) and speaks only when it is over the budget.
+  - **Budget** (PostToolUse, `STATUS`/`TODO`/`MAP`/`LEARNINGS.md`): measures the manual part (outside auto blocks) and speaks only when it is over the budget. `init.sh --check` performs the same check portably, without depending on Claude Code.
 - Output is `hookSpecificOutput.additionalContext` JSON: for tool events, plain `echo` goes only to the debug log and never reaches the model (the earlier one-liner here had that bug, and also matched a relative path against the absolute `file_path` — it never fired). `SessionStart` is the exception: its plain stdout does reach the model.
 - `jq` is optional: without it, `hook.sh` parses the flat fields it needs with `sed`.
-- The `$HOME/.claude/skills/contexto` path is personal, so this wiring belongs in `.claude/settings.local.json`. For a team, install the skill with `install.sh --project` and point at `"$CLAUDE_PROJECT_DIR"/.claude/skills/contexto/scripts/hook.sh` in the committed `.claude/settings.json`. The `[ -x ]` guard keeps the hook silent where the skill isn't installed.
 - Personal/machine-only hooks go in `.claude/settings.local.json` (gitignored), never in the committable file.
 
 ### opencode (via Claude-compatible plugin)
@@ -111,6 +135,6 @@ If the plugin is unavailable, the fallback is manual: run
 
 - Auto-appending to `LEARNINGS.md` / `BUGS.md` from a hook (merges machine noise with judgment notes).
 - Rewriting `STATUS.md` state or `MAP.md` flows from `SessionEnd`/`Stop`.
-- Blocking hooks (`exit 2`) for context hygiene — reminders only.
+- Blocking hooks (`exit 2`) for context hygiene — context hooks only remind (`.githooks/pre-commit` is a lint gate and blocks on purpose).
 - Timeouts above ~10s: hooks run on the critical path of every session/tool call.
 - Committing personal paths, notification commands, or secrets into shared hook files.
