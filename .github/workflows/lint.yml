@@ -42,9 +42,12 @@ jobs:
           grep -q "gerado em" /tmp/smoke-pt/.claude/context/MAP.md
           # monorepo auto-detects tier 3
           ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-mono | grep -q "tier=3"
-          # tool dirs don't count; commits on 2+ days break the tier 1-2 tie
+          # tool dirs don't count: 250 files under _bmad/ must not push the tier (with
+          # them counted this would be tier 3). With no TTY the 1-2 tie goes to 2, the
+          # multi-session default; an explicit one-shot request still gives 1.
           mkdir -p /tmp/smoke-bmad/_bmad/.git && for i in $(seq 1 250); do : > /tmp/smoke-bmad/_bmad/f$i; : > /tmp/smoke-bmad/_bmad/.git/f$i; done
-          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-bmad | grep -q "tier=1"
+          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-bmad | grep -q "tier=2"
+          CONTEXTO_ASSUME_MULTISESSAO=0 ./scripts/init.sh --tier auto --dir /tmp/smoke-bmad | grep -q "tier=1"
           git -C /tmp/smoke-hist init -q
           for d in 2026-09-27 2026-09-30; do GIT_AUTHOR_DATE=${d}T12:00 GIT_COMMITTER_DATE=${d}T12:00 git -C /tmp/smoke-hist -c user.name=ci -c user.email=ci@ci commit -q --allow-empty -m $d; done
           ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-hist | grep -q "tier=2"
@@ -66,6 +69,87 @@ jobs:
           grep -q "@.claude/context/TODO.md" /tmp/smoke-en/CLAUDE.md   # imported once active
           grep -q "^updated: $(date +%F)" /tmp/smoke-en/.claude/context/STATUS.md
           grep -q "^tier: 2" /tmp/smoke-en/.claude/context/STATUS.md
+      - name: init.sh guards (data loss, CLI, portability, --check, bundle)
+        run: |
+          # An unbalanced auto block used to swallow the rest of the file, silently.
+          D=/tmp/smoke-guard; rm -rf $D; mkdir -p $D/.claude/context
+          printf -- '---\nupdated: 2020-01-01\ntier: 1\n---\n\n# Mapa\n\n<!-- auto:start -->\nvelho\n\n## A mao (NAO_PODE_SUMIR)\n' > $D/.claude/context/MAP.md
+          ./scripts/init.sh --tier 1 --yes --dir $D 2>&1 | grep -q "unbalanced"
+          grep -q 'NAO_PODE_SUMIR' $D/.claude/context/MAP.md
+          # CLI validation
+          ! ./scripts/init.sh --tier 7 --dir $D 2>/dev/null
+          ! ./scripts/init.sh --lang xx --dir $D 2>/dev/null
+          ! ./scripts/init.sh --tier 2>/dev/null
+          # Portability: no GNU-only sed -i, and mktemp always gets a template
+          ! grep -nE '^[^#]*sed -i' scripts/init.sh
+          ! grep -nE 'mktemp\)' scripts/init.sh
+          # A consumer that closes the pipe early must not abort the scaffold: with
+          # pipefail this used to exit non-zero mid-run and leave half the files.
+          P=/tmp/smoke-pipe; rm -rf $P; mkdir -p $P
+          ( set -o pipefail; ./scripts/init.sh --tier 2 --yes --dir $P | head -1 >/dev/null )
+          test -f $P/.claude/context/LEARNINGS.md
+          test -f $P/CLAUDE.md
+          # same for the installer's narration, which never touches $HOME with --list
+          ( set -o pipefail; ./scripts/install.sh --list | head -1 >/dev/null )
+          # --check writes nothing on a virgin project, and reports the missing file
+          V=/tmp/smoke-virgin; rm -rf $V; mkdir -p $V; : > $V/a.txt
+          ! ./scripts/init.sh --check --tier 1 --dir $V 2>/dev/null
+          test ! -e $V/.claude
+          # tier 3 stamps BUGS.md like every other context file
+          T=/tmp/smoke-stamp; rm -rf $T; mkdir -p $T/apps/x
+          ./scripts/init.sh --tier 3 --yes --dir $T >/dev/null
+          grep -q "^updated: $(date +%F)" $T/.claude/context/BUGS.md
+          # auto-block labels follow the template language
+          P=/tmp/smoke-pt2; rm -rf $P; mkdir -p $P
+          ./scripts/init.sh --tier 2 --lang pt --yes --dir $P >/dev/null
+          grep -q '^data: ' $P/.claude/context/STATUS.md
+          grep -q '^date: ' /tmp/smoke-en/.claude/context/STATUS.md
+          # an empty packages/ is not a monorepo
+          mkdir -p /tmp/smoke-empty-pkg/packages && : > /tmp/smoke-empty-pkg/a.txt
+          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-empty-pkg | grep -q "tier=2"
+          # the Run command must not depend on whether jq is installed (dev wins over start)
+          J=/tmp/smoke-jq; rm -rf $J; mkdir -p $J
+          printf '{"scripts":{"dev":"vite","start":"node .","build":"tsc","test":"vitest"}}\n' > $J/package.json
+          ./scripts/init.sh --tier 1 --yes --dir $J >/dev/null
+          grep -q 'npm run dev' $J/.claude/context/MAP.md
+          # an existing STATUS.md keeps a fresh auto block even when the tier drops to 1
+          S=/tmp/smoke-stale; rm -rf $S; mkdir -p $S
+          ./scripts/init.sh --tier 2 --yes --dir $S >/dev/null
+          sed -i 's/^data: .*/data: 1999-01-01/' $S/.claude/context/STATUS.md
+          ./scripts/init.sh --tier 1 --yes --dir $S >/dev/null
+          grep -q "^data: $(date +%F)" $S/.claude/context/STATUS.md
+          # bundle: opt-in, mirrors the import policy, keeps user text, refreshes itself
+          B=/tmp/smoke-bundle; rm -rf $B; mkdir -p $B; echo 'REGRA_DO_USUARIO' > $B/AGENTS.md
+          ./scripts/init.sh --tier 2 --lang en --yes --bundle --dir $B >/dev/null
+          grep -q 'REGRA_DO_USUARIO' $B/AGENTS.md
+          test "$(grep -c '^<!-- from ' $B/AGENTS.md)" = 3
+          grep -q '@.claude/context/LEARNINGS.md' $B/CLAUDE.md
+          ./scripts/init.sh --check --tier 2 --lang en --dir $B
+          cp $B/AGENTS.md /tmp/smoke-bundle-1.md
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $B >/dev/null   # no-op run
+          diff -q /tmp/smoke-bundle-1.md $B/AGENTS.md                      # converged on run 1
+          printf '\nBUNDLE_MUST_FOLLOW\n' >> $B/.claude/context/STATUS.md
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $B >/dev/null   # refreshes without --bundle
+          grep -q 'BUNDLE_MUST_FOLLOW' $B/AGENTS.md
+          ./scripts/init.sh --check --tier 2 --lang en --dir $B
+          # --check also catches a stale code index, and never writes it
+          I=/tmp/smoke-idxstale; rm -rf $I; mkdir -p $I/supabase/migrations
+          printf 'create table public.um (id int);\n' > $I/supabase/migrations/001.sql
+          ./scripts/init.sh --tier 2 --lang en --yes --index --dir $I >/dev/null
+          ./scripts/init.sh --check --tier 2 --lang en --dir $I
+          printf 'create table public.dois (id int);\n' > $I/supabase/migrations/002.sql
+          ./scripts/init.sh --check --tier 2 --lang en --dir $I 2>&1 | grep -q 'index is stale'
+          ! grep -q 'dois' $I/.claude/context/MAP.md          # --check wrote nothing
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $I >/dev/null
+          ./scripts/init.sh --check --tier 2 --lang en --dir $I
+          # --check catches a stale bundle, a placeholder date and an over-budget file
+          sed -i 's/BUNDLE_MUST_FOLLOW/TAMPERED/' $B/AGENTS.md
+          sed -i 's/^updated: .*/updated: AAAA-MM-DD/' $B/.claude/context/LEARNINGS.md
+          seq 80 >> $B/.claude/context/STATUS.md
+          ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 | grep -q 'bundle is stale'
+          ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 | grep -q 'placeholder'
+          ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 | grep -q 'budget 60'
+          ! ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>/dev/null
       - name: init.sh --index (code index block in MAP.md)
         run: |
           D=/tmp/smoke-idx; rm -rf $D
@@ -81,11 +165,18 @@ jobs:
           grep -q 'pedidos  rls 1p  0001_init.sql:1' $M          # policy "on" on the next line counts
           grep -q 'bairros  NO-RLS 0p' $M
           grep -q 'criar_pedido  0002_rpc.sql:1' $M
-          grep -q 'pagar  supabase/functions/pagar/' $M
+          grep -q 'pagar  supabase/functions/pagar/index.ts:1' $M
           ! grep -q '_shared' $M                                  # helper dirs are not functions
           grep -q '/r/:slug  src/App.tsx:1' $M
           ! grep -q -- '- \*  ' $M                                # wildcard route skipped
           grep -q 'POST /webhook  api/server.ts:1' $M
+          # RLS on a continuation line and FORCE are still RLS; a policy whose name
+          # contains " on " counts for its own table; flat netlify functions appear.
+          printf 'create table public.gama (id int);\nalter table public.gama\n  enable row level security;\ncreate policy "le on own" on public.gama for select using (true);\n' > $D/supabase/migrations/0004_rls.sql
+          mkdir -p $D/netlify/functions && : > $D/netlify/functions/plano.ts
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $D
+          grep -q 'gama  rls 1p  0004_rls.sql:1' $M
+          grep -q 'plano  netlify/functions/plano.ts:1' $M
           # refreshed without the flag once present; budget awk skips both auto blocks
           printf 'create table extra (id int);\n' > $D/supabase/migrations/0003_extra.sql
           ./scripts/init.sh --tier 2 --lang en --yes --dir $D
@@ -109,6 +200,9 @@ jobs:
       - name: hook.sh (recall by file, budget, silence, valid JSON)
         run: |
           D=/tmp/smoke-en
+          # The recall marker is "once per file per session" in the scratchpad; a stale
+          # one from an earlier local run would silence the first assertion below.
+          rm -f "${TMPDIR:-/tmp}"/contexto-recall-*
           printf -- '- [2026-08-24] [net] the "socket" lives in src/net.ts\n' >> $D/.claude/context/LEARNINGS.md
           j() { printf '{"session_id":"ci","cwd":"%s","scratchpad_dir":"/tmp","hook_event_name":"%s","tool_input":{"file_path":"%s"}}' "$D" "$1" "$2"; }
           j PreToolUse $D/src/net.ts | ./scripts/hook.sh | python3 -c 'import json,sys; assert "src/net.ts" in json.load(sys.stdin)["hookSpecificOutput"]["additionalContext"]'
@@ -122,8 +216,20 @@ jobs:
         run: |
           ./scripts/install.sh --list
           ./scripts/install.sh --only claude --copy --force --uninstall || true
-          cd /tmp/smoke-proj && "$GITHUB_WORKSPACE/scripts/install.sh" --only claude,opencode --project
+          cd /tmp/smoke-proj && "$GITHUB_WORKSPACE/scripts/install.sh" --only claude,opencode,agents --project
           test -d /tmp/smoke-proj/.claude/skills/contexto
+          test -d /tmp/smoke-proj/.agents/skills/contexto
           test -d /tmp/smoke-proj/.opencode/skills/contexto
           test -f /tmp/smoke-proj/.opencode/commands/context.md
           test -f /tmp/smoke-proj/.opencode/commands/contexto.md
+          # --uninstall --project undoes the project copies and never touches $HOME
+          cd /tmp/smoke-proj && "$GITHUB_WORKSPACE/scripts/install.sh" --only claude,opencode,agents --project --uninstall
+          test ! -e /tmp/smoke-proj/.claude/skills/contexto
+          test ! -e /tmp/smoke-proj/.agents/skills/contexto
+          test ! -e /tmp/smoke-proj/.opencode/skills/contexto
+          test ! -e /tmp/smoke-proj/.opencode/commands/context.md
+          test ! -e /tmp/smoke-proj/.opencode/commands/contexto.md
+          # --only agents --project installs that target alone
+          cd /tmp/smoke-proj && "$GITHUB_WORKSPACE/scripts/install.sh" --only agents --project
+          test -d /tmp/smoke-proj/.agents/skills/contexto
+          test ! -e /tmp/smoke-proj/.claude/skills/contexto
