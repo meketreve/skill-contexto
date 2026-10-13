@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # pre-commit — mirrors CI (lint.yml), zero dependencies.
 # Enable once per clone: git config core.hooksPath .githooks
-# What it checks: syntax, executable bit, templates PT/EN sync,
-# commands alias sync, frontmatter, whitespace errors.
+# What it checks: syntax, portability (no sed -i / bare mktemp), executable bit,
+# templates PT/EN sync, commands alias sync, frontmatter, whitespace errors.
 set -euo pipefail
 
 REPO="$(git rev-parse --show-toplevel)"
@@ -17,7 +17,19 @@ for s in "$REPO/scripts/init.sh" "$REPO/scripts/install.sh" "$REPO/scripts/index
 done
 ok "bash -n"
 
-# 2. Executable bit
+# 2. Portability — no GNU-only flags, no template-less mktemp (BSD/macOS)
+if grep -nE '^[^#]*sed -i' "$REPO"/scripts/*.sh >&2; then
+  die "GNU-only 'sed -i' in scripts/ (BSD needs -i plus a suffix — write a temp file instead)"
+else
+  ok "no sed -i"
+fi
+if grep -nE 'mktemp\)' "$REPO"/scripts/*.sh >&2; then
+  die "mktemp without a template in scripts/ (BSD needs an explicit XXXXXX template)"
+else
+  ok "mktemp templates"
+fi
+
+# 3. Executable bit
 for s in scripts/init.sh scripts/install.sh scripts/index.sh scripts/hook.sh .githooks/pre-commit; do
   [ -x "$REPO/$s" ] || die "missing +x: $s (run: chmod +x $s)"
   # the index is what CI checks out; with core.fileMode=false chmod never reaches it
@@ -25,7 +37,7 @@ for s in scripts/init.sh scripts/install.sh scripts/index.sh scripts/hook.sh .gi
 done
 ok "+x"
 
-# 3. ShellCheck (skip if not installed — CI enforces)
+# 4. ShellCheck (skip if not installed — CI enforces)
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck -S warning "$REPO/scripts/init.sh" "$REPO/scripts/install.sh" "$REPO/scripts/index.sh" "$REPO/scripts/hook.sh" || die "shellcheck warnings"
   ok "shellcheck"
@@ -33,7 +45,7 @@ else
   warn "skip shellcheck (not installed — CI will check)"
 fi
 
-# 4. templates/ vs templates.en/ — same file set
+# 5. templates/ vs templates.en/ — same file set
 if ! diff -q <(ls "$REPO/templates" | sort) <(ls "$REPO/templates.en" | sort) >/dev/null; then
   die "templates/ and templates.en/ out of sync:"
   diff <(ls "$REPO/templates" | sort) <(ls "$REPO/templates.en" | sort) >&2 || true
@@ -41,21 +53,21 @@ else
   ok "templates pt/en set"
 fi
 
-# 5. commands aliases — instructions identical from line 9 on
+# 6. commands aliases — instructions identical from line 9 on
 if ! diff -q <(tail -n +9 "$REPO/commands/context.md") <(tail -n +9 "$REPO/commands/contexto.md") >/dev/null; then
   die "commands/context.md and commands/contexto.md diverged past line 8 (keep aliases in sync)"
 else
   ok "commands aliases"
 fi
 
-# 6. Frontmatter (updated:/tier:) present in every template
+# 7. Frontmatter (updated:/tier:) present in every template
 for f in "$REPO"/templates/*.md "$REPO"/templates.en/*.md; do
   grep -q '^updated:' "$f" || die "missing updated: in ${f#$REPO/}"
   grep -q '^tier:' "$f" || die "missing tier: in ${f#$REPO/}"
 done
 ok "frontmatter"
 
-# 7. Whitespace errors on staged changes
+# 8. Whitespace errors on staged changes
 git diff --cached --check || die "whitespace errors (git diff --cached --check)"
 
 if [ "$fail" -ne 0 ]; then
