@@ -512,7 +512,8 @@ src_files() {
   local -a prune=()
   re="(^|/)($(IFS='|'; echo "${SKIP_DIRS[*]}" | sed 's/\./\\./g')|dist|target|vendor)/"
   if [ "$IN_GIT_IDX" = 1 ]; then
-    git -C "$DIR" ls-files 2>/dev/null | grep -Ev "$re" || true
+    # tracked + new files not committed yet (never git-ignored ones)
+    git -C "$DIR" ls-files --cached --others --exclude-standard 2>/dev/null | grep -Ev "$re" || true
   else
     for d in "${SKIP_DIRS[@]}" dist target vendor; do prune+=(-name "$d" -o); done
     (cd "$DIR" && find . \( "${prune[@]}" -false \) -prune -o -type f -print 2>/dev/null | sed 's|^\./||')
@@ -609,8 +610,8 @@ index_block() {
   code="$(printf '%s\n' "$files" | grep -E '\.(tsx?|jsx?|mjs)$' | grep -Ev '(\.test|\.spec|\.stories)\.|(^|/)(tests?|__tests__|e2e)/' || true)"
   routes=""
   if [ -n "$code" ]; then
-    routes="$(cd "$DIR" && printf '%s\n' "$code" | tr '\n' '\0' | xargs -0 grep -nE \
-      "(<Route[^>]*[[:space:]]path=|[[:space:]{,]path:[[:space:]]*)[\"'][^\"']*[\"']|(app|router|api|route|server|fastify)\.(get|post|put|patch|delete|all)\([[:space:]]*[\"'\`]/" 2>/dev/null \
+    routes="$(cd "$DIR" && printf '%s\n' "$code" | tr '\n' '\0' | xargs -0 grep -HnE \
+      "(<Route[^>]*[[:space:]]path=|^[[:space:]]+path=|[[:space:]{,]path:[[:space:]]*)[\"'][^\"']*[\"']|(app|router|api|route|server|fastify)\.(get|post|put|patch|delete|all)\([[:space:]]*[\"'\`]/" 2>/dev/null \
       | LC_ALL=C awk '{
           loc = $0; sub(/:[^:]*$/, "", loc)
           if (match(loc, /^[^:]*:[0-9]+/)) loc = substr(loc, 1, RLENGTH)

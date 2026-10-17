@@ -185,6 +185,11 @@ jobs:
           ! awk '/<!-- auto:start/{s=1} !s{print} /<!-- auto:end/{s=0}' $M | grep -q 'pedidos'
           # no --index, no block
           ! grep -q 'auto:start index' /tmp/smoke-pt/.claude/context/MAP.md
+          # git repo: uncommitted files count; JSX path= on its own line; a single code file keeps its name
+          J=/tmp/smoke-jsx; rm -rf $J; mkdir -p $J/src && git -C $J init -q
+          printf '<Route\n  path="/painel"\n/>\n' > $J/src/App.tsx
+          ./scripts/init.sh --tier 1 --yes --index --dir $J
+          grep -q '/painel  src/App.tsx:2' $J/.claude/context/MAP.md
       - name: index.sh (entries, verdicts, multi-line match)
         run: |
           L=/tmp/smoke-en/.claude/context/LEARNINGS.md
