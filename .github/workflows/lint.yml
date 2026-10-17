@@ -114,9 +114,9 @@ jobs:
           grep -q 'npm run dev' $J/.claude/context/MAP.md
           # an existing STATUS.md keeps a fresh auto block even when the tier drops to 1
           S=/tmp/smoke-stale; rm -rf $S; mkdir -p $S
-          ./scripts/init.sh --tier 2 --yes --dir $S >/dev/null
+          ./scripts/init.sh --tier 2 --lang pt --yes --dir $S >/dev/null   # rótulo "data:" só em pt (CI roda com LANG=C)
           sed -i 's/^data: .*/data: 1999-01-01/' $S/.claude/context/STATUS.md
-          ./scripts/init.sh --tier 1 --yes --dir $S >/dev/null
+          ./scripts/init.sh --tier 1 --lang pt --yes --dir $S >/dev/null
           grep -q "^data: $(date +%F)" $S/.claude/context/STATUS.md
           # bundle: opt-in, mirrors the import policy, keeps user text, refreshes itself
           B=/tmp/smoke-bundle; rm -rf $B; mkdir -p $B; echo 'REGRA_DO_USUARIO' > $B/AGENTS.md
