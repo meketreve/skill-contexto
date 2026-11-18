@@ -8,7 +8,8 @@
 # Targets (global, personal):
 #   claude    ~/.claude/skills/contexto                      (Claude Code skill)
 #   agents    ~/.agents/skills/contexto                       (Agent Skills spec dir; opencode auto-loads it too)
-#   opencode  ~/.config/opencode/skills/contexto + commands/{context,contexto}.md  (skill + /context + /contexto)
+#   opencode  ~/.config/opencode/skills/contexto + commands/{context,contexto}.md + plugins/contexto
+#             (skill + /context + /contexto + the recall/compaction plugin)
 #
 # By default only harnesses detected on this machine are installed
 # (claude: ~/.claude exists or `claude` on PATH; opencode: ~/.config/opencode
@@ -17,7 +18,7 @@
 #
 # --project installs copies into the current project instead:
 #   .claude/skills/contexto, .agents/skills/contexto, .opencode/skills/contexto,
-#   .opencode/commands/{context,contexto}.md
+#   .opencode/commands/{context,contexto}.md, .opencode/plugins/contexto
 # --uninstall removes them again; with --project it only touches the project copies.
 set -euo pipefail
 # A consumer that closes the pipe early (`| head`, `| grep -q`) used to kill the install
@@ -119,6 +120,7 @@ if [ "$ONLY" = "list" ]; then
   say "opencode skill:  $HOME/.config/opencode/skills/contexto — $(status_of "$HOME/.config/opencode/skills/contexto")"
   say "opencode cmd:    $HOME/.config/opencode/commands/context.md — $(status_of "$HOME/.config/opencode/commands/context.md")"
   say "opencode cmd:    $HOME/.config/opencode/commands/contexto.md — $(status_of "$HOME/.config/opencode/commands/contexto.md")"
+  say "opencode plugin: $HOME/.config/opencode/plugins/contexto — $(status_of "$HOME/.config/opencode/plugins/contexto")"
   exit 0
 fi
 
@@ -127,12 +129,12 @@ if [ "$UNINSTALL" = "1" ]; then
     # --project --uninstall undoes the project copies only; $HOME stays untouched.
     want claude && drop "./.claude/skills/contexto"
     want agents && drop "./.agents/skills/contexto"
-    want opencode && { drop "./.opencode/skills/contexto"; drop "./.opencode/commands/context.md"; drop "./.opencode/commands/contexto.md"; }
+    want opencode && { drop "./.opencode/skills/contexto"; drop "./.opencode/commands/context.md"; drop "./.opencode/commands/contexto.md"; drop "./.opencode/plugins/contexto"; }
     exit 0
   fi
   want claude && drop "$HOME/.claude/skills/contexto"
   want agents && drop "$HOME/.agents/skills/contexto"
-  want opencode && { drop "$HOME/.config/opencode/skills/contexto"; drop "$HOME/.config/opencode/commands/context.md"; drop "$HOME/.config/opencode/commands/contexto.md"; }
+  want opencode && { drop "$HOME/.config/opencode/skills/contexto"; drop "$HOME/.config/opencode/commands/context.md"; drop "$HOME/.config/opencode/commands/contexto.md"; drop "$HOME/.config/opencode/plugins/contexto"; }
   exit 0
 fi
 
@@ -145,6 +147,7 @@ if [ "$PROJECT" = "1" ]; then
     put_dir "$REPO" "./.opencode/skills/contexto"
     put_file "$REPO/commands/context.md" "./.opencode/commands/context.md"
     put_file "$REPO/commands/contexto.md" "./.opencode/commands/contexto.md"
+    put_dir "$REPO/plugins/opencode" "./.opencode/plugins/contexto"
   fi
   MODE="$MODE_SAVED"
   say "project install done (copies — commit them)"
@@ -165,7 +168,8 @@ if detected opencode; then
   put_dir "$REPO" "$HOME/.config/opencode/skills/contexto"
   put_file "$REPO/commands/context.md" "$HOME/.config/opencode/commands/context.md"
   put_file "$REPO/commands/contexto.md" "$HOME/.config/opencode/commands/contexto.md"
-  say "note: quit and restart opencode to load the skill/command"
+  put_dir "$REPO/plugins/opencode" "$HOME/.config/opencode/plugins/contexto"
+  say "note: quit and restart opencode to load the skill, command and plugin"
 else
   skip_msg opencode
 fi

@@ -50,11 +50,14 @@ tier: 2
 
 - Claude Code: `@.claude/context/STATUS.md` etc. in the root `CLAUDE.md` — `@path` imports are expanded.
 - **DSH does not interpret `@path`**; it reads the project root's `AGENTS.md`/`CLAUDE.md` literally (source: `dsh-agent-instructions` README: "`@path` imports are not interpreted"). For it, use `init.sh --bundle`, which mirrors the import policy's files into `AGENTS.md`, verbatim.
-- opencode: the root `CLAUDE.md` is read as a fallback; the canonical carrier is the `instructions` field in `opencode.json`:
-  ```json
+- opencode (V2): reads `AGENTS.md` (the global `~/.config/opencode/AGENTS.md` plus every `AGENTS.md` from the workspace up to the project root) and the `instructions` array of `opencode.json`/`opencode.jsonc`. **It does not read `CLAUDE.md`** — tested on v2.3.0: a marker in `CLAUDE.md` was invisible, the same marker in `AGENTS.md` and in `instructions` was loaded. Two carriers, pick one:
+  - `init.sh --bundle` mirrors the imported files into `AGENTS.md` (no config edit);
+  - `init.sh --opencode` writes the same list into `instructions` (opt-in; timestamped backup, JSONC comments preserved, existing entries kept):
+  ```jsonc
   { "$schema": "https://opencode.ai/config.json",
-    "instructions": [".claude/context/STATUS.md", ".claude/context/MAP.md"] }
+    "instructions": [".claude/context/MAP.md", ".claude/context/STATUS.md"] }
   ```
+  `--check` fails when the project shows opencode usage (an `opencode.json*` or a `.opencode/` dir) and neither carrier is present or complete.
 - Per tier: `MAP` always; `STATUS` and `LEARNINGS` at tier 2+ (tier 3 included); `TODO` only while `active: true`; `WORKFLOW` only if it exists.
 - `BUGS.md` and `memory/*.md` never go into imports — recipes: `grep -i "<error excerpt>" .claude/context/BUGS.md`, and `scripts/index.sh <term>` for memory.
 

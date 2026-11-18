@@ -2,7 +2,7 @@
 name: contexto
 description: Bootstraps lean project context in 3 tiers (MAP/STATUS/TODO/LEARNINGS/BUGS/WORKFLOW) with a zero-token script scaffold, a cold `memory/` tier for long-term learnings, subagent briefing, and closes a session by updating those files. Use when the user asks to prepare/bootstrap project context, montar/iniciar o contexto, build a MAP/STATUS, organize project memory, or for a handoff — encerrar a sessão, passar o bastão, or before suggesting /clear.
 license: MIT
-version: 1.0.0
+version: 1.2.0
 ---
 
 # Tiered project context
@@ -68,7 +68,7 @@ Write in the user's language (templates ship in PT-BR and English via `--lang`; 
 - `memory/` is **never** imported and never bundled: it is the cold tier. Only its pointers live in `LEARNINGS.md`, which is imported.
 - `WORKFLOW.md`: imported only if it exists.
 
-**Who reads what (per-harness carriers):** Claude Code expands `@path` imports in the root `CLAUDE.md`. **DSH does not interpret `@path`** — it reads the project root's `AGENTS.md`/`CLAUDE.md` literally (source: `dsh-agent-instructions` README: "`@path` imports are not interpreted") — which is what `--bundle` is for. In opencode, the canonical carrier is the `instructions` field in `opencode.json`; the root `CLAUDE.md` is the fallback.
+**Who reads what (per-harness carriers):** Claude Code expands `@path` imports in the root `CLAUDE.md`. **DSH does not interpret `@path`** — it reads the project root's `AGENTS.md`/`CLAUDE.md` literally (source: `dsh-agent-instructions` README: "`@path` imports are not interpreted") — which is what `--bundle` is for. **opencode V2 ignores `CLAUDE.md`** (tested on v2.3.0) and reads `AGENTS.md` plus the `instructions` array of `opencode.json`; use `--bundle` (mirrors into `AGENTS.md`) or `--opencode` (writes `instructions`, opt-in, backup, JSONC preserved). `--check` fails when opencode is in use and neither carrier reaches the context.
 
 ## 5. Budgets (context spending)
 
@@ -84,6 +84,7 @@ Detail in `reference/hooks.md`. Only bring them up when the user asks to automat
 
 - **Git hook** (this repo): `.githooks/pre-commit` mirrors CI; enable once per clone with `git config core.hooksPath .githooks` — it is not committable by design.
 - **Agent hook** (per project): `SessionStart` suggests `/contexto` when `MAP.md` is missing — it never runs `init.sh` by itself, because creating files is the user's call. `PreToolUse` shows the recorded learnings/bugs that cite a file before its first edit in the session, and `PostToolUse` warns when a context file goes over budget — both through `scripts/hook.sh`, silent otherwise. `--check` covers the budget without depending on Claude Code.
+- **opencode** (this repo's plugin, installed with the skill): `plugins/opencode` registers `context`, `compaction` and tool hooks natively — the same recall, budget warning and compaction instruction as `hook.sh`, in TypeScript. It finds `index.sh` through the skill dir and stays silent without `.claude/context/`. Pitfalls: `event.system.push()` is the only vector the model obeys (`instructions.entry` reads as untrusted), `console.warn` never reaches the model, and a plugin edit needs a restart or `--standalone`. Detail in `reference/hooks.md`.
 - **Compaction** (`PreCompact` + `SessionStart` with matcher `compact`): the first turns a static list into instructions for the compaction summary — errors, paths, commands and decisions verbatim; the second, right after, asks for whatever is still unwritten and hands back the `index.sh` table of contents. This is what survives a session that compacts before it closes, which is exactly the case the handoff never reaches. Wire it on long sessions; keep it static and fast.
 
 Finish with a short list of what was created and what was left blank for the user.

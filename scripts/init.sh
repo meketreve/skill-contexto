@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # init.sh — 3-tier context scaffold, zero tokens spent.
-# Usage: init.sh [--tier auto|1|2|3] [--dir PROJECT] [--lang auto|pt|en] [--yes] [--todo] [--migrate] [--index]
+# Usage: init.sh [--tier auto|1|2|3] [--dir PROJECT] [--lang auto|pt|en] [--yes] [--todo] [--migrate] [--index] [--bundle] [--opencode] [--check]
 # Only creates missing files; never overwrites manual content.
 # <!-- auto:start --> … <!-- auto:end --> blocks belong to the script.
 set -euo pipefail
@@ -17,6 +17,7 @@ WANT_TODO=0
 MIGRATE=0
 WANT_INDEX=0
 WANT_BUNDLE=0
+WANT_OPENCODE=0
 CHECK=0
 ASSUME_YES=0
 
@@ -27,7 +28,7 @@ ASSUME_YES=0
 say() { echo "$@" 2>/dev/null || true; }
 
 usage() {
-  say "usage: init.sh [--tier auto|1|2|3] [--dir DIR] [--lang auto|pt|en] [--yes] [--todo] [--migrate] [--index] [--bundle] [--check]"
+  say "usage: init.sh [--tier auto|1|2|3] [--dir DIR] [--lang auto|pt|en] [--yes] [--todo] [--migrate] [--index] [--bundle] [--opencode] [--check]"
   say "  --lang picks the template language (default: auto from \$LANG, pt* → pt, else en)"
   say "  --yes  never prompt (tier 1-2 tie: commits on 2+ days → 2; with no TTY the tie goes to 2,"
   say "         the multi-session default — force one-shot with --tier 1 or CONTEXTO_ASSUME_MULTISESSAO=0)"
@@ -36,9 +37,12 @@ usage() {
   say "  --index  add a code index to MAP.md (tables/RLS, SQL functions, edge functions, routes);"
   say "           once added, every run refreshes it"
   say "  --bundle add AGENTS.md carrying the same files the import policy loads, for harnesses that"
-  say "           do not expand @imports (DSH, opencode); once added, every run refreshes it"
-  say "  --check  read-only: report stale bundle, marker/import/budget problems; writes nothing,"
-  say "           exits 1 when it finds something"
+  say "           do not expand @imports (DSH); once added, every run refreshes it"
+  say "  --opencode write the same file list into the 'instructions' array of opencode.json"
+  say "           (opencode V2 ignores CLAUDE.md); backup on edit, JSONC comments preserved,"
+  say "           once added, every run refreshes it"
+  say "  --check  read-only: report stale bundle, marker/import/budget problems and broken"
+  say "           memory pointers; writes nothing, exits 1 when it finds something"
 }
 
 while [ $# -gt 0 ]; do
@@ -56,6 +60,7 @@ while [ $# -gt 0 ]; do
     --migrate) MIGRATE=1; shift ;;
     --index) WANT_INDEX=1; shift ;;
     --bundle) WANT_BUNDLE=1; shift ;;
+    --opencode) WANT_OPENCODE=1; shift ;;
     --check) CHECK=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 1 ;;
@@ -506,6 +511,210 @@ fill_bundle() { # tier
   rm -f "$tmp" "$tmp.body"
 }
 
+# --- opencode carrier (opt-in: --opencode, then kept fresh on every run) ---
+# opencode V2 loads AGENTS.md and the `instructions` array of opencode.json; it does NOT
+# read CLAUDE.md (tested against v2.3.0: a marker in CLAUDE.md was invisible, the same
+# marker in AGENTS.md and in `instructions` was loaded). --bundle covers the first,
+# --opencode the second. The edit is textual so JSONC comments survive, and the result is
+# parsed before writing; a timestamped backup is kept.
+opencode_conf() {
+  local f
+  for f in "$DIR/opencode.jsonc" "$DIR/opencode.json"; do
+    [ -f "$f" ] && { printf '%s\n' "$f"; return 0; }
+  done
+  return 1
+}
+
+opencode_opted_in() {
+  local conf
+  conf="$(opencode_conf)" || return 1
+  grep -qF '.claude/context/' "$conf" 2>/dev/null
+}
+
+# Entries of `instructions` that are missing, one per line.
+# Exit: 0 complete, 1 no instructions key, 2 missing printed, 3 no file/unparsable.
+opencode_inspect() { # file wanted...
+  local conf="$1"; shift
+  python3 - "$conf" "$@" <<'PY'
+import json, os, re, sys
+
+path, wanted = sys.argv[1], sys.argv[2:]
+if not os.path.exists(path):
+    sys.exit(3)
+try:
+    text = open(path, encoding="utf-8").read()
+except OSError:
+    sys.exit(3)
+
+def strip_jsonc(s):
+    out, i, n = [], 0, len(s)
+    while i < n:
+        c = s[i]
+        if c == '"':
+            j = i + 1
+            while j < n:
+                if s[j] == "\\": j += 2; continue
+                if s[j] == '"': break
+                j += 1
+            out.append(s[i:j+1]); i = j + 1; continue
+        if c == "/" and i + 1 < n and s[i+1] == "/":
+            while i < n and s[i] != "\n": i += 1
+            continue
+        if c == "/" and i + 1 < n and s[i+1] == "*":
+            i += 2
+            while i + 1 < n and not (s[i] == "*" and s[i+1] == "/"): i += 1
+            i += 2; continue
+        out.append(c); i += 1
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+
+try:
+    data = json.loads(strip_jsonc(text))
+except Exception:
+    sys.exit(3)
+if not isinstance(data, dict) or "instructions" not in data:
+    sys.exit(1)
+val = data["instructions"]
+if isinstance(val, str):
+    val = [val]
+if not isinstance(val, list):
+    sys.exit(1)
+missing = [w for w in wanted if w not in val]
+print("\n".join(missing))
+sys.exit(2 if missing else 0)
+PY
+}
+
+fill_opencode() { # tier
+  local t="$1" conf f out
+  conf="$(opencode_conf || true)"
+  if [ -n "$conf" ]; then
+    if [ "$WANT_OPENCODE" != 1 ] && ! opencode_opted_in; then return 0; fi
+  else
+    [ "$WANT_OPENCODE" = 1 ] || return 0
+    conf="$DIR/opencode.json"
+  fi
+  command -v python3 >/dev/null 2>&1 || {
+    echo "init.sh: --opencode needs python3 to edit JSONC safely" >&2
+    return 0
+  }
+  local -a want=()
+  while IFS= read -r f; do want+=("${f#"$DIR"/}"); done < <(wanted_sources "$t")
+  if out="$(python3 - "$conf" "${want[@]}" <<'PY'
+import json, os, re, shutil, sys, time
+
+path, wanted = sys.argv[1], [w for w in sys.argv[2:] if w]
+if not wanted:
+    print("up to date")
+    sys.exit(0)
+
+def strip_jsonc(s):
+    out, i, n = [], 0, len(s)
+    while i < n:
+        c = s[i]
+        if c == '"':
+            j = i + 1
+            while j < n:
+                if s[j] == "\\": j += 2; continue
+                if s[j] == '"': break
+                j += 1
+            out.append(s[i:j+1]); i = j + 1; continue
+        if c == "/" and i + 1 < n and s[i+1] == "/":
+            while i < n and s[i] != "\n": i += 1
+            continue
+        if c == "/" and i + 1 < n and s[i+1] == "*":
+            i += 2
+            while i + 1 < n and not (s[i] == "*" and s[i+1] == "/"): i += 1
+            i += 2; continue
+        out.append(c); i += 1
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+
+exists = os.path.exists(path)
+text = open(path, encoding="utf-8").read() if exists else ""
+if not text.strip():
+    text = '{\n  "$schema": "https://opencode.ai/config.json"\n}\n'
+try:
+    data = json.loads(strip_jsonc(text))
+except Exception as e:
+    print("invalid JSONC: %s" % e, file=sys.stderr)
+    sys.exit(1)
+
+cur = data.get("instructions")
+if isinstance(cur, str):
+    cur = [cur]
+if cur is None:
+    cur = []
+if not isinstance(cur, list):
+    print('"instructions" is not an array', file=sys.stderr)
+    sys.exit(1)
+missing = [w for w in wanted if w not in cur]
+if not missing:
+    print("up to date")
+    sys.exit(0)
+
+def multiline(values, indent):
+    body = "".join("\n%s  %s," % (indent, json.dumps(v)) for v in values).rstrip(",")
+    return "[" + body + "\n" + indent + "]"
+
+m = re.search(r'"instructions"\s*:\s*\[', text)
+if m:
+    start = text.index("[", m.start())
+    depth, i, end = 0, start, None
+    while i < len(text):
+        c = text[i]
+        if c == '"':
+            i += 1
+            while i < len(text):
+                if text[i] == "\\": i += 2; continue
+                if text[i] == '"': break
+                i += 1
+        elif c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+        i += 1
+    if end is None:
+        print("unterminated instructions array", file=sys.stderr)
+        sys.exit(1)
+    line_start = text.rfind("\n", 0, m.start()) + 1
+    indent = re.match(r"[ \t]*", text[line_start:]).group(0)
+    new_text = text[:start] + multiline(cur + missing, indent) + text[end+1:]
+else:
+    brace = text.find("{")
+    if brace < 0:
+        print("no JSON object", file=sys.stderr)
+        sys.exit(1)
+    indent = "  "
+    block = '\n%s"instructions": %s' % (indent, multiline(wanted, indent))
+    rest = text[brace+1:]
+    empty = strip_jsonc(text).strip() in ("{}", "{ }")
+    new_text = text[:brace+1] + block + ("" if empty else ",") + rest
+
+try:
+    check = json.loads(strip_jsonc(new_text))
+    got = check.get("instructions")
+    if isinstance(got, str):
+        got = [got]
+    assert isinstance(got, list) and all(w in got for w in wanted)
+except Exception as e:
+    print("edit would produce invalid JSONC: %s" % e, file=sys.stderr)
+    sys.exit(1)
+
+if exists:
+    shutil.copy2(path, "%s.bak-%s" % (path, time.strftime("%Y%m%d-%H%M%S")))
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(new_text)
+print("updated %s (+%d)" % (os.path.basename(path), len(missing)))
+PY
+  )"; then
+    [ "$out" = "up to date" ] || say "$out"
+  else
+    echo "init.sh: could not update ${conf##*/} (left untouched)" >&2
+  fi
+}
+
 # Source files, one relative path per line: tracked files in a repo, else find.
 src_files() {
   local re d
@@ -775,6 +984,39 @@ check_mode() { # tier
     fi
     rm -f "$tmp"
   fi
+  # 7. opencode carrier: V2 ignores CLAUDE.md, so the imports above never reach it.
+  #    A project that shows opencode usage (config or .opencode/) is a hard failure;
+  #    merely having the binary on PATH is a note, so CI and other harnesses stay green.
+  local oc_conf oc_rc oc_hard=0 oc_soft=0 oc_visible=0
+  local -a oc_want=()
+  if [ -f "$DIR/opencode.json" ] || [ -f "$DIR/opencode.jsonc" ] || [ -d "$DIR/.opencode" ]; then
+    oc_hard=1
+  elif command -v opencode >/dev/null 2>&1 || command -v opencodeoc >/dev/null 2>&1; then
+    oc_soft=1
+  fi
+  if [ "$oc_hard" = 1 ] || [ "$oc_soft" = 1 ]; then
+    oc_conf="$(opencode_conf || true)"
+    while IFS= read -r f; do oc_want+=("${f#"$DIR"/}"); done < <(wanted_sources "$t")
+    if [ -n "$oc_conf" ] && command -v python3 >/dev/null 2>&1; then
+      oc_rc=0
+      opencode_inspect "$oc_conf" "${oc_want[@]}" >/dev/null 2>&1 || oc_rc=$?
+      [ "$oc_rc" = 0 ] && oc_visible=1
+    fi
+    if [ -f "$agents" ] && grep -qF "$BUNDLE_START" "$agents"; then
+      oc_visible=1
+    fi
+    if [ "$oc_visible" != 1 ]; then
+      if [ "$oc_hard" = 1 ]; then
+        if [ -n "$oc_conf" ] && [ "${oc_rc:-0}" = 2 ]; then
+          check_fail "opencode.json: instructions is missing files — run init.sh --opencode"
+        else
+          check_fail "opencode will not see .claude/context (V2 ignores CLAUDE.md) — run init.sh --opencode or --bundle"
+        fi
+      else
+        echo "check: note: opencode is installed but nothing carries .claude/context to it (V2 ignores CLAUDE.md) — run init.sh --opencode or --bundle" >&2
+      fi
+    fi
+  fi
   if [ "$t" -lt 2 ] && [ -f "$CTX/STATUS.md" ]; then
     echo "check: note: STATUS.md exists but the detected tier is $t — pass --tier 2 to manage it" >&2
   fi
@@ -830,6 +1072,7 @@ fi
 
 ensure_claude_imports "$TIER_N"
 fill_bundle "$TIER_N"
+fill_opencode "$TIER_N"
 
 say "---"
 say "created/verified in $CTX:"
@@ -842,7 +1085,11 @@ else
   say "left blank to complete: MAP (flows)"
 fi
 if [ -f "$DIR/AGENTS.md" ] && grep -qF "$BUNDLE_START" "$DIR/AGENTS.md"; then
-  say "bundle refreshed: AGENTS.md — for harnesses that do not expand @imports (DSH; opencode via instructions)"
+  say "bundle refreshed: AGENTS.md — for harnesses that do not expand @imports (DSH)"
+fi
+oc_conf="$(opencode_conf || true)"
+if [ -n "$oc_conf" ] && grep -qF '.claude/context/' "$oc_conf" 2>/dev/null; then
+  say "opencode carrier: $(basename "$oc_conf") instructions — opencode V2 ignores CLAUDE.md"
 fi
 # Report the REAL flag, not a guess: a re-run over an ongoing TODO used to
 # print "active: false" while the file said true, which reads as if the script

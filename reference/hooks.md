@@ -150,12 +150,54 @@ No matcher on `PreCompact` on purpose: it must fire for `auto` too, which is the
 - **Not** blocking (`exit 2`) by default. Blocking a `manual` `/compact` shows stderr and cancels it; blocking an `auto` compaction that is recovering from a context-limit error makes the current request fail. Good for a "write your learnings first" gate, bad as a default.
 - The transcript path arrives in `transcript_path` (JSONL). Reading it inside the hook is the ambitious version: it can mine literal errors and edited paths, but it is noise-prone and slower. The static instruction is the cheap, reliable tier; extraction is only worth it after the static one proves insufficient.
 
+### opencode (V2 plugin)
+
+opencode V2 has **no declarative hooks** — the config schema exposes `instructions` and
+`compaction`, not event hooks. Hooks are code: a TypeScript plugin loaded from
+`.opencode/plugins/<name>/index.ts` (project) or `~/.config/opencode/plugins/<name>/index.ts`
+(global). This repo ships one; `install.sh` links it into place.
+
+The events verified against v2.3.0, and what the plugin does with each:
+
+| Hook | What it receives | What `plugins/opencode` does |
+|---|---|---|
+| `ctx.session.hook("context")` | `sessionID`, `agent`, `model`, `system[]`, `messages`, `tools` | pushes the recall block and any queued budget warning |
+| `ctx.session.hook("compaction")` | same shape; `messages` is the transcript being summarized | pushes the instruction that forces literal errors/paths/commands/decisions into the summary, plus the `index.sh` table of contents |
+| `ctx.tool.hook("execute.before")` | `tool`, `input`, `sessionID`, `agent` | remembers the project-relative file the session touched |
+| `ctx.tool.hook("execute.after")` | the same + `status`, `result` | measures the manual part of a context file and queues the budget warning |
+
+Rules that are not obvious until they bite:
+
+- **`event.system.push({ type: "text", text })` is the only injection vector the model
+  obeys.** `ctx.session.instructions.entry.put()` renders as a `<system-update>` block;
+  the model treats it as untrusted external content and refuses to act on it (tested).
+- **`console.warn` in a plugin goes to the server log, never to the model.** Queue the
+  warning and deliver it in the next `context` hook — `execute.after` measures, `context`
+  speaks. (A `context` hook runs before a request, never mid-request, so the warning lands
+  on the next turn.)
+- **Tool paths are project-relative** (`src/net.ts`), unlike Claude Code's absolute
+  `file_path`. An absolute path means the file is outside the project; skip it.
+- **Subagents get their own session** (`agent=general`, a child `sessionID`), so their
+  `context` hook fires too — recall reaches them without extra work.
+- **The background server caches plugins.** Editing a plugin does not reload it; restart
+  opencode, or test with `opencode run --standalone`.
+- `event.result` on `compaction` replaces the summary entirely — leave it alone unless you
+  intend to write the summary yourself.
+- The plugin never blocks and never writes context files; it only injects text, exactly like
+  `hook.sh` on the Claude side.
+
+Install: `install.sh --only opencode` links `plugins/opencode` to
+`~/.config/opencode/plugins/contexto`; `--project` copies it to
+`.opencode/plugins/contexto`. It finds `index.sh` through the skill dir, so the skill and
+the plugin should be installed together. It stays silent when the project has no
+`.claude/context/`.
+
 ## 3. Anti-patterns (don't)
 
 - Auto-appending to `LEARNINGS.md` / `BUGS.md` from a hook (merges machine noise with judgment notes).
 - Rewriting `STATUS.md` state or `MAP.md` flows from `SessionEnd`/`Stop`.
 - Blocking hooks (`exit 2`) for context hygiene — context hooks only remind (`.githooks/pre-commit` is a lint gate and blocks on purpose).
-- Timeouts above ~10s: hooks run on the critical path of every session/tool call.
-- Committing personal paths, notification commands, or secrets into shared hook files.
 - Trusting the compaction summary as the record: it keeps the story and drops the literal errors, paths and rejected options the next session actually needs. Wire `PreCompact` if sessions are long.
 - Making `PreCompact` do work on the critical path: it runs on every compaction, so keep it static and fast (no transcript mining by default).
+- Timeouts above ~10s: hooks run on the critical path of every session/tool call.
+- Committing personal paths, notification commands, or secrets into shared hook files.

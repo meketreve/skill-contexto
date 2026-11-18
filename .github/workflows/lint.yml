@@ -150,6 +150,38 @@ jobs:
           ( ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 || true ) | grep -c 'placeholder'
           ( ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 || true ) | grep -c 'budget 60'
           ! ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>/dev/null
+      - name: opencode carrier (--opencode, JSONC, --check)
+        run: |
+          # opencode V2 ignores CLAUDE.md: the carrier is `instructions` or the AGENTS bundle.
+          D=/tmp/smoke-oc; rm -rf $D; mkdir -p $D/.opencode
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $D >/dev/null
+          ! ./scripts/init.sh --check --tier 2 --lang en --dir $D 2>/dev/null
+          ( ./scripts/init.sh --check --tier 2 --lang en --dir $D 2>&1 || true ) | grep -c 'opencode will not see'
+          ./scripts/init.sh --tier 2 --lang en --yes --opencode --dir $D >/dev/null
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert ".claude/context/LEARNINGS.md" in d["instructions"]' $D/opencode.json
+          ./scripts/init.sh --check --tier 2 --lang en --dir $D
+          cp $D/opencode.json /tmp/smoke-oc-1.json
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $D >/dev/null
+          diff -q /tmp/smoke-oc-1.json $D/opencode.json                    # idempotent
+          test "$(find $D -maxdepth 1 -name 'opencode.json.bak-*' | wc -l)" = 0  # creation: nothing to back up
+          # JSONC: comments and unrelated keys survive, missing entries are appended
+          J=/tmp/smoke-oc-jsonc; rm -rf $J; mkdir -p $J
+          printf '{\n  // keep me\n  "model": "x/y",\n  "instructions": ["docs/style.md"],\n}\n' > $J/opencode.jsonc
+          ./scripts/init.sh --tier 2 --lang en --yes --opencode --dir $J >/dev/null
+          grep -q '// keep me' $J/opencode.jsonc
+          grep -q '"model": "x/y"' $J/opencode.jsonc
+          grep -q '"docs/style.md"' $J/opencode.jsonc
+          grep -q '".claude/context/MAP.md"' $J/opencode.jsonc
+          test "$(find $J -maxdepth 1 -name 'opencode.jsonc.bak-*' | wc -l)" = 1  # edit keeps one timestamped backup
+          # an incomplete list is a check failure
+          sed -i '\|\.claude/context/LEARNINGS.md|d' $D/opencode.json
+          ( ./scripts/init.sh --check --tier 2 --lang en --dir $D 2>&1 || true ) | grep -c 'instructions is missing'
+          # invalid JSONC is left untouched
+          K=/tmp/smoke-oc-bad; rm -rf $K; mkdir -p $K
+          printf '{ "instructions": [ "x" \n' > $K/opencode.json
+          cp $K/opencode.json /tmp/smoke-oc-bad-before
+          ./scripts/init.sh --tier 2 --lang en --yes --opencode --dir $K >/dev/null 2>&1
+          diff -q /tmp/smoke-oc-bad-before $K/opencode.json
       - name: init.sh --index (code index block in MAP.md)
         run: |
           D=/tmp/smoke-idx; rm -rf $D
@@ -275,6 +307,7 @@ jobs:
           test -d /tmp/smoke-proj/.opencode/skills/contexto
           test -f /tmp/smoke-proj/.opencode/commands/context.md
           test -f /tmp/smoke-proj/.opencode/commands/contexto.md
+          test -f /tmp/smoke-proj/.opencode/plugins/contexto/index.ts
           # --uninstall --project undoes the project copies and never touches $HOME
           cd /tmp/smoke-proj && "$GITHUB_WORKSPACE/scripts/install.sh" --only claude,opencode,agents --project --uninstall
           test ! -e /tmp/smoke-proj/.claude/skills/contexto
@@ -282,6 +315,7 @@ jobs:
           test ! -e /tmp/smoke-proj/.opencode/skills/contexto
           test ! -e /tmp/smoke-proj/.opencode/commands/context.md
           test ! -e /tmp/smoke-proj/.opencode/commands/contexto.md
+          test ! -e /tmp/smoke-proj/.opencode/plugins/contexto
           # --only agents --project installs that target alone
           cd /tmp/smoke-proj && "$GITHUB_WORKSPACE/scripts/install.sh" --only agents --project
           test -d /tmp/smoke-proj/.agents/skills/contexto
