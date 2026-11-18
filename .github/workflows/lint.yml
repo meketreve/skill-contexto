@@ -229,6 +229,27 @@ jobs:
           # a memory file still on the placeholder date is caught
           printf -- '---\nupdated: YYYY-MM-DD\n---\n\n- [2026-09-05] [x] fato\n' > $C/memory/old.md
           ( ./scripts/init.sh --check --tier 2 --lang en --dir $M 2>&1 || true ) | grep -c 'memory/old.md: updated: is still the template placeholder'
+      - name: compaction and subagent hooks
+        run: |
+          # Reuses the scaffold from the memory step above.
+          M=/tmp/smoke-mem
+          # A stale marker from an earlier local run would silence the recall assertions.
+          rm -f "${TMPDIR:-/tmp}"/contexto-recall-*
+          # PreCompact: plain stdout (instructions for the summary), never JSON
+          printf '{"session_id":"ci","cwd":"%s","hook_event_name":"PreCompact","trigger":"auto"}' "$M" | ./scripts/hook.sh | grep -c 'VERBATIM'
+          ! printf '{"cwd":"%s","hook_event_name":"PreCompact"}' "$M" | ./scripts/hook.sh | grep -c hookSpecificOutput
+          # after compaction: ask for the unwritten and hand back the memory TOC
+          printf '{"session_id":"ci","cwd":"%s","hook_event_name":"SessionStart","source":"compact"}' "$M" | ./scripts/hook.sh | grep -c 'Compaction just ran'
+          printf '{"cwd":"%s","hook_event_name":"SessionStart","source":"compact"}' "$M" | ./scripts/hook.sh | grep -c 'net.md — 2 entries'
+          test -z "$(printf '{"cwd":"%s","hook_event_name":"SessionStart","source":"startup"}' "$M" | ./scripts/hook.sh)"
+          # subagent: own marker (no inheritance), and a once-only stop reminder
+          j2() { printf '{"session_id":"ci","agent_id":"%s","cwd":"%s","hook_event_name":"%s","tool_input":{"file_path":"%s"}}' "$1" "$M" "$2" "$3"; }
+          j2 a1 PreToolUse "$M/src/net.ts" | ./scripts/hook.sh | grep -c 'src/net.ts'
+          test -z "$(j2 a1 PreToolUse "$M/src/net.ts" | ./scripts/hook.sh)"          # once per agent
+          j2 a2 PreToolUse "$M/src/net.ts" | ./scripts/hook.sh | grep -c 'src/net.ts' # another agent still gets it
+          j2 a2 SubagentStop "" | ./scripts/hook.sh | grep -c 'Before you finish'
+          test -z "$(j2 a2 SubagentStop "" | ./scripts/hook.sh)"                     # once per agent
+          test -z "$(j2 a3 SubagentStop "" | ./scripts/hook.sh)"                     # never touched a file
       - name: hook.sh (recall by file, budget, silence, valid JSON)
         run: |
           D=/tmp/smoke-en

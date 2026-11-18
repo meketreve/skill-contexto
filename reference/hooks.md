@@ -100,36 +100,55 @@ For a team, install with `install.sh --project` and keep only the `"$CLAUDE_PROJ
 
 (`PostToolUse` uses the same command.) The `[ -x ]` guard keeps the hook silent where the skill isn't installed.
 
+`SubagentStop` reuses the same command, no matcher:
+
+```json
+{
+  "hooks": {
+    "SubagentStop": [
+      { "hooks": [ { "type": "command", "command": "h=\"$HOME/.claude/skills/contexto/scripts/hook.sh\"; [ -x \"$h\" ] && \"$h\"; exit 0", "timeout": 5 } ] }
+    ]
+  }
+}
+```
+
 Notes:
 
 - `SessionStart` is read-only: missing context → suggest, existing → show `git status`. Never runs `init.sh` by itself (scaffolding creates files — that decision stays with the user/model).
 - `PreToolUse` and `PostToolUse` both call `scripts/hook.sh`, which decides by event and path and stays silent otherwise:
-  - **Recall by file** (PreToolUse, file outside `.claude/context/`): runs `index.sh` with the file's project-relative path (then its basename, unless generic like `index.ts`/`main.py`) and, when entries in `LEARNINGS*`/`BUGS*` cite it, shows up to 3 of them before the edit. Once per file per session (a marker in the session scratchpad), so repeated edits don't repeat it.
-  - **Budget** (PostToolUse, `STATUS`/`TODO`/`MAP`/`LEARNINGS.md`): measures the manual part (outside auto blocks) and speaks only when it is over the budget. `init.sh --check` performs the same check portably, without depending on Claude Code.
+  - **Recall by file** (PreToolUse, file outside `.claude/context/`): runs `index.sh` with the file's project-relative path (then its basename, unless generic like `index.ts`/`main.py`) and, when entries in `LEARNINGS*`/`BUGS*`/`memory/*` cite it, shows up to 3 of them before the edit. Once per file per agent — the marker carries `agent_id`, so a subagent gets the recall its parent already consumed.
+  - **Budget** (PostToolUse, `STATUS`/`TODO`/`MAP`/`LEARNINGS.md`): measures the manual part (outside auto blocks) and speaks only when it is over the budget; on `LEARNINGS.md` it asks for a tag promotion to `memory/` before any deletion. `init.sh --check` performs the same check portably, without depending on Claude Code.
+- `SubagentStop` (`"matcher"` optional, no path) makes the subagent write its findings before it dies: its transcript is not the parent's, so nothing else carries them. It fires once per agent, only if that agent touched a file, and uses `additionalContext` — the conversation continues, the subagent is not stop-blocked.
 - Output is `hookSpecificOutput.additionalContext` JSON: for tool events, plain `echo` goes only to the debug log and never reaches the model (the earlier one-liner here had that bug, and also matched a relative path against the absolute `file_path` — it never fired). `SessionStart` is the exception: its plain stdout does reach the model.
 - `jq` is optional: without it, `hook.sh` parses the flat fields it needs with `sed`.
 - Personal/machine-only hooks go in `.claude/settings.local.json` (gitignored), never in the committable file.
+- Subagent recall and the `SubagentStop` reminder only work because the marker is keyed by `session_id` + `agent_id`. Keying it by session alone makes a subagent inherit the parent's markers and silently lose the recall — the exact case it needs it.
 
-### opencode (via Claude-compatible plugin)
+#### Compaction (`PreCompact` + `SessionStart: compact`)
 
-Stock opencode has no native declarative hooks (as of 2026-09); the
-community path is a Claude-format bridge plugin (e.g.
-`opencode-claude-hooks` or equivalent — verify it is maintained before
-adopting). It reads `.opencode/hooks.json` (project) or
-`~/.config/opencode/hooks.json` (personal) in the same shape as above:
+A summary keeps the narrative and drops the artifacts — literal errors, `file:line`, the command that worked, why an approach was rejected. These two hooks cost nothing and keep the split intact: neither writes manual content, both only speak.
 
-1. Register the plugin in `opencode.json`:
+`PreCompact` — its **plain stdout is used verbatim as instructions for the compaction summary** (not JSON; cap 10,000 characters per hook), so the hook forces the summarizer to keep what a paraphrase eats. It must be fast and static.
+
+`SessionStart` with matcher `compact` fires right after compaction; its plain stdout does reach the model. `hook.sh` uses it to ask for what is still unwritten and to hand back the `index.sh` table of contents, so the agent recalls instead of re-guessing.
 
 ```json
-{ "$schema": "https://opencode.ai/config.json", "plugin": ["opencode-claude-hooks"] }
+{
+  "hooks": {
+    "PreCompact": [
+      { "hooks": [ { "type": "command", "command": "h=\"$HOME/.claude/skills/contexto/scripts/hook.sh\"; [ -x \"$h\" ] && \"$h\"; exit 0", "timeout": 5 } ] }
+    ],
+    "SessionStart": [
+      { "matcher": "compact", "hooks": [ { "type": "command", "command": "h=\"$HOME/.claude/skills/contexto/scripts/hook.sh\"; [ -x \"$h\" ] && \"$h\"; exit 0", "timeout": 10 } ] }
+    ]
+  }
+}
 ```
 
-2. Reuse the same `SessionStart` / `PreToolUse` / `PostToolUse` JSON from the Claude
-   example in `.opencode/hooks.json`. Check that the bridge forwards
-   `additionalContext` to the model; if it doesn't, the two tool hooks are silent no-ops.
+No matcher on `PreCompact` on purpose: it must fire for `auto` too, which is the case where the agent never gets a turn to save anything.
 
-If the plugin is unavailable, the fallback is manual: run
-`scripts/init.sh --tier auto` at session start — no automation needed.
+- **Not** blocking (`exit 2`) by default. Blocking a `manual` `/compact` shows stderr and cancels it; blocking an `auto` compaction that is recovering from a context-limit error makes the current request fail. Good for a "write your learnings first" gate, bad as a default.
+- The transcript path arrives in `transcript_path` (JSONL). Reading it inside the hook is the ambitious version: it can mine literal errors and edited paths, but it is noise-prone and slower. The static instruction is the cheap, reliable tier; extraction is only worth it after the static one proves insufficient.
 
 ## 3. Anti-patterns (don't)
 
@@ -138,3 +157,5 @@ If the plugin is unavailable, the fallback is manual: run
 - Blocking hooks (`exit 2`) for context hygiene — context hooks only remind (`.githooks/pre-commit` is a lint gate and blocks on purpose).
 - Timeouts above ~10s: hooks run on the critical path of every session/tool call.
 - Committing personal paths, notification commands, or secrets into shared hook files.
+- Trusting the compaction summary as the record: it keeps the story and drops the literal errors, paths and rejected options the next session actually needs. Wire `PreCompact` if sessions are long.
+- Making `PreCompact` do work on the critical path: it runs on every compaction, so keep it static and fast (no transcript mining by default).

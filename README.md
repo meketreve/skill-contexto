@@ -55,14 +55,15 @@ No harness at all? The skill is pure bash + markdown. Clone it anywhere and run 
 SKILL.md              # the skill (thin: picks tier, runs script, fills 20%; carries `version:`)
 scripts/init.sh       # zero-token scaffold (detection + auto blocks + imports + bundle, --lang auto|pt|en)
 scripts/index.sh      # recall index: table of contents and entry search for LEARNINGS/BUGS/memory
-scripts/hook.sh       # agent hook payloads: recall by file (PreToolUse) + budget warning (PostToolUse)
+scripts/hook.sh       # agent hook payloads: recall by file, budget warning, compaction, subagent stop
 scripts/install.sh    # links/copies the skill into your harnesses
 .githooks/pre-commit  # local checks mirroring CI (enable: git config core.hooksPath .githooks)
 .github/workflows/lint.yml  # CI: shellcheck, sync checks, smoke tests, --check and bundle guards
 templates/            # PT-BR: MAP STATUS TODO LEARNINGS (+ BUGS WORKFLOW for tier 3)
 templates.en/         # English: same set
 reference/tiers.md    # tiers, formats, imports, budgets (lazy load)
-reference/hooks.md    # optional hooks: git (recommended) + agent SessionStart/PreToolUse/PostToolUse (opt-in)
+reference/hooks.md    # optional hooks: git (recommended) + agent hooks incl. compaction (opt-in)
+reference/subagents.md # handing memory to a subagent, and taking its findings back
 commands/context.md + contexto.md  # /context + /contexto for opencode (aliases, keep in sync)
 ```
 
@@ -75,11 +76,12 @@ git config core.hooksPath .githooks
 ```
 
 Agent hooks are opt-in per project — see `reference/hooks.md`
-(Claude Code native `SessionStart` + `PreToolUse` + `PostToolUse`;
-`PreToolUse` recalls the recorded learnings/bugs that cite a file before its first edit in
-the session, `PostToolUse` warns when a context file goes over budget — both through
-`scripts/hook.sh`, silent otherwise; opencode via Claude-compatible plugin; hooks remind,
-never auto-write).
+(Claude Code native `SessionStart` + `PreToolUse` + `PostToolUse` + `SubagentStop` +
+`PreCompact`; `PreToolUse` recalls the recorded learnings/bugs that cite a file before its
+first edit in the session, `PostToolUse` warns when a context file goes over budget,
+`PreCompact` feeds the compaction summary the facts a paraphrase eats, `SubagentStop` makes
+a subagent write its findings before it dies — all through `scripts/hook.sh`, silent
+otherwise; hooks remind, never auto-write).
 
 ## Conventions
 

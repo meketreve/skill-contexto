@@ -1,6 +1,6 @@
 ---
 name: contexto
-description: Bootstraps lean project context in 3 tiers (MAP/STATUS/TODO/LEARNINGS/BUGS/WORKFLOW) with a zero-token script scaffold, a cold `memory/` tier for long-term learnings, and closes a session by updating those files. Use when the user asks to prepare/bootstrap project context, montar/iniciar o contexto, build a MAP/STATUS, organize project memory, or for a handoff — encerrar a sessão, passar o bastão, or before suggesting /clear.
+description: Bootstraps lean project context in 3 tiers (MAP/STATUS/TODO/LEARNINGS/BUGS/WORKFLOW) with a zero-token script scaffold, a cold `memory/` tier for long-term learnings, subagent briefing, and closes a session by updating those files. Use when the user asks to prepare/bootstrap project context, montar/iniciar o contexto, build a MAP/STATUS, organize project memory, or for a handoff — encerrar a sessão, passar o bastão, or before suggesting /clear.
 license: MIT
 version: 1.0.0
 ---
@@ -84,6 +84,7 @@ Detail in `reference/hooks.md`. Only bring them up when the user asks to automat
 
 - **Git hook** (this repo): `.githooks/pre-commit` mirrors CI; enable once per clone with `git config core.hooksPath .githooks` — it is not committable by design.
 - **Agent hook** (per project): `SessionStart` suggests `/contexto` when `MAP.md` is missing — it never runs `init.sh` by itself, because creating files is the user's call. `PreToolUse` shows the recorded learnings/bugs that cite a file before its first edit in the session, and `PostToolUse` warns when a context file goes over budget — both through `scripts/hook.sh`, silent otherwise. `--check` covers the budget without depending on Claude Code.
+- **Compaction** (`PreCompact` + `SessionStart` with matcher `compact`): the first turns a static list into instructions for the compaction summary — errors, paths, commands and decisions verbatim; the second, right after, asks for whatever is still unwritten and hands back the `index.sh` table of contents. This is what survives a session that compacts before it closes, which is exactly the case the handoff never reaches. Wire it on long sessions; keep it static and fast.
 
 Finish with a short list of what was created and what was left blank for the user.
 
@@ -98,3 +99,11 @@ On request only — never from a hook. Work from **this conversation**; don't re
 5. `MAP.md`: paths that took more than 2–3 searches, commands discovered.
 
 Bump `updated:` on every file touched; budgets, auto blocks and "no file the tier doesn't call for" apply as above (a missing file is created by `init.sh`, never by copying a template by hand). Don't commit unless asked. Finish with 3–5 lines: what was updated and the next phase.
+
+## 8. Subagents
+
+A subagent sees nothing of this conversation and its transcript is not read back. Hand memory over explicitly, both ways — detail and template in `reference/subagents.md`:
+
+- **Before:** search the memory with `index.sh` using the task's terms and paste the hits into the brief; forbid it from editing `STATUS.md`/`TODO.md`/`MAP.md`; ask for findings in the `- [YYYY-MM-DD] [tag] [✓|✗] fact — consequence` format.
+- **After:** read its final message and promote what holds — `LEARNINGS.md` for the short and broad, `memory/<tag>.md` plus a pointer for the long, `BUGS.md` for anything with a literal error. Its guesses are not learnings until you confirm them.
+- **Automatic half:** `PreToolUse` recall already fires inside subagents (the marker carries `agent_id`, so it does not inherit yours), and `SubagentStop` asks for the findings once per agent. For fan-out, give each subagent its own `memory/<tag>.md` — parallel appends to `LEARNINGS.md` interleave.
