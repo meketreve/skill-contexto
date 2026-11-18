@@ -41,21 +41,21 @@ jobs:
           # tier 1 auto-block labels follow template language
           grep -q "gerado em" /tmp/smoke-pt/.claude/context/MAP.md
           # monorepo auto-detects tier 3
-          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-mono | grep -q "tier=3"
+          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-mono | grep -c "tier=3"
           # tool dirs don't count: 250 files under _bmad/ must not push the tier (with
           # them counted this would be tier 3). With no TTY the 1-2 tie goes to 2, the
           # multi-session default; an explicit one-shot request still gives 1.
           mkdir -p /tmp/smoke-bmad/_bmad/.git && for i in $(seq 1 250); do : > /tmp/smoke-bmad/_bmad/f$i; : > /tmp/smoke-bmad/_bmad/.git/f$i; done
-          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-bmad | grep -q "tier=2"
-          CONTEXTO_ASSUME_MULTISESSAO=0 ./scripts/init.sh --tier auto --dir /tmp/smoke-bmad | grep -q "tier=1"
+          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-bmad | grep -c "tier=2"
+          CONTEXTO_ASSUME_MULTISESSAO=0 ./scripts/init.sh --tier auto --dir /tmp/smoke-bmad | grep -c "tier=1"
           git -C /tmp/smoke-hist init -q
           for d in 2026-09-27 2026-09-30; do GIT_AUTHOR_DATE=${d}T12:00 GIT_COMMITTER_DATE=${d}T12:00 git -C /tmp/smoke-hist -c user.name=ci -c user.email=ci@ci commit -q --allow-empty -m $d; done
-          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-hist | grep -q "tier=2"
+          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-hist | grep -c "tier=2"
           # old format: warn, then --migrate keeps the text and adds frontmatter + auto block
           mkdir -p /tmp/smoke-old/.claude/context && printf '# Status\n\nOLD_MANUAL\n' > /tmp/smoke-old/.claude/context/STATUS.md
-          ./scripts/init.sh --tier 2 --yes --dir /tmp/smoke-old 2>&1 | grep -q "old format: STATUS.md"
+          ./scripts/init.sh --tier 2 --yes --dir /tmp/smoke-old 2>&1 | grep -c "old format: STATUS.md"
           ./scripts/init.sh --tier 2 --yes --migrate --dir /tmp/smoke-old
-          head -1 /tmp/smoke-old/.claude/context/STATUS.md | grep -qx -- "---"
+          head -1 /tmp/smoke-old/.claude/context/STATUS.md | grep -cx -- "---"
           grep -q "OLD_MANUAL" /tmp/smoke-old/.claude/context/STATUS.md
           test -f /tmp/smoke-old/.claude/context/STATUS.md.bak
           test "$(grep -c '<!-- auto:start -->' /tmp/smoke-old/.claude/context/STATUS.md)" = 1
@@ -74,7 +74,7 @@ jobs:
           # An unbalanced auto block used to swallow the rest of the file, silently.
           D=/tmp/smoke-guard; rm -rf $D; mkdir -p $D/.claude/context
           printf -- '---\nupdated: 2020-01-01\ntier: 1\n---\n\n# Mapa\n\n<!-- auto:start -->\nvelho\n\n## A mao (NAO_PODE_SUMIR)\n' > $D/.claude/context/MAP.md
-          ./scripts/init.sh --tier 1 --yes --dir $D 2>&1 | grep -q "unbalanced"
+          ./scripts/init.sh --tier 1 --yes --dir $D 2>&1 | grep -c "unbalanced"
           grep -q 'NAO_PODE_SUMIR' $D/.claude/context/MAP.md
           # CLI validation
           ! ./scripts/init.sh --tier 7 --dir $D 2>/dev/null
@@ -106,7 +106,7 @@ jobs:
           grep -q '^date: ' /tmp/smoke-en/.claude/context/STATUS.md
           # an empty packages/ is not a monorepo
           mkdir -p /tmp/smoke-empty-pkg/packages && : > /tmp/smoke-empty-pkg/a.txt
-          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-empty-pkg | grep -q "tier=2"
+          ./scripts/init.sh --tier auto --yes --dir /tmp/smoke-empty-pkg | grep -c "tier=2"
           # the Run command must not depend on whether jq is installed (dev wins over start)
           J=/tmp/smoke-jq; rm -rf $J; mkdir -p $J
           printf '{"scripts":{"dev":"vite","start":"node .","build":"tsc","test":"vitest"}}\n' > $J/package.json
@@ -138,7 +138,7 @@ jobs:
           ./scripts/init.sh --tier 2 --lang en --yes --index --dir $I >/dev/null
           ./scripts/init.sh --check --tier 2 --lang en --dir $I
           printf 'create table public.dois (id int);\n' > $I/supabase/migrations/002.sql
-          ./scripts/init.sh --check --tier 2 --lang en --dir $I 2>&1 | grep -q 'index is stale'
+          ( ./scripts/init.sh --check --tier 2 --lang en --dir $I 2>&1 || true ) | grep -c 'index is stale'
           ! grep -q 'dois' $I/.claude/context/MAP.md          # --check wrote nothing
           ./scripts/init.sh --tier 2 --lang en --yes --dir $I >/dev/null
           ./scripts/init.sh --check --tier 2 --lang en --dir $I
@@ -146,9 +146,9 @@ jobs:
           sed -i 's/BUNDLE_MUST_FOLLOW/TAMPERED/' $B/AGENTS.md
           sed -i 's/^updated: .*/updated: AAAA-MM-DD/' $B/.claude/context/LEARNINGS.md
           seq 80 >> $B/.claude/context/STATUS.md
-          ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 | grep -q 'bundle is stale'
-          ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 | grep -q 'placeholder'
-          ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 | grep -q 'budget 60'
+          ( ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 || true ) | grep -c 'bundle is stale'
+          ( ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 || true ) | grep -c 'placeholder'
+          ( ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 || true ) | grep -c 'budget 60'
           ! ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>/dev/null
       - name: init.sh --index (code index block in MAP.md)
         run: |
@@ -182,7 +182,7 @@ jobs:
           ./scripts/init.sh --tier 2 --lang en --yes --dir $D
           grep -q 'extra  NO-RLS' $M
           test "$(grep -c '<!-- auto:start index -->' $M)" = 1
-          ! awk '/<!-- auto:start/{s=1} !s{print} /<!-- auto:end/{s=0}' $M | grep -q 'pedidos'
+          ! awk '/<!-- auto:start/{s=1} !s{print} /<!-- auto:end/{s=0}' $M | grep -c 'pedidos'
           # no --index, no block
           ! grep -q 'auto:start index' /tmp/smoke-pt/.claude/context/MAP.md
           # git repo: uncommitted files count; JSX path= on its own line; a single code file keeps its name
@@ -195,11 +195,11 @@ jobs:
           L=/tmp/smoke-en/.claude/context/LEARNINGS.md
           printf -- '- [2026-08-20] [net] [✗] free the name on close — never fires on minimize\n' >> "$L"
           printf -- '- [2026-08-23] [net] [✓] app heartbeat every 5 s\n  frees the name — tested on tablet\n' >> "$L"
-          ./scripts/index.sh --dir /tmp/smoke-en | grep -q "LEARNINGS.md — 2 entries"
-          ./scripts/index.sh --dir /tmp/smoke-en | grep -q "(✓1 ✗1)"
-          ./scripts/index.sh --dir /tmp/smoke-en -x | grep -q "on close"
-          ! ./scripts/index.sh --dir /tmp/smoke-en -x | grep -q "heartbeat"
-          ./scripts/index.sh --dir /tmp/smoke-en tablet | grep -q "LEARNINGS.md:.*heartbeat"
+          ./scripts/index.sh --dir /tmp/smoke-en | grep -c "LEARNINGS.md — 2 entries"
+          ./scripts/index.sh --dir /tmp/smoke-en | grep -c "(✓1 ✗1)"
+          ./scripts/index.sh --dir /tmp/smoke-en -x | grep -c "on close"
+          ! ./scripts/index.sh --dir /tmp/smoke-en -x | grep -c "heartbeat"
+          ./scripts/index.sh --dir /tmp/smoke-en tablet | grep -c "LEARNINGS.md:.*heartbeat"
           printf -- '- [2026-08-25] [ui] the [✗] icon is red\n' >> "$L"     # ✗ in the text is no verdict
           test "$(./scripts/index.sh --dir /tmp/smoke-en -x | grep -c 2026-08)" = 1
       - name: hook.sh (recall by file, budget, silence, valid JSON)
@@ -215,7 +215,7 @@ jobs:
           test -z "$(j PreToolUse $D/src/other.ts | ./scripts/hook.sh)"    # nothing cites it
           test -z "$(j PostToolUse $D/.claude/context/STATUS.md | ./scripts/hook.sh)"  # under budget
           seq 80 >> $D/.claude/context/STATUS.md
-          j PostToolUse $D/.claude/context/STATUS.md | ./scripts/hook.sh | grep -q "budget 60"
+          j PostToolUse $D/.claude/context/STATUS.md | ./scripts/hook.sh | grep -c "budget 60"
           echo 'not json' | ./scripts/hook.sh
       - name: install.sh matrix
         run: |
