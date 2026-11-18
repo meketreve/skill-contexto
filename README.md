@@ -54,7 +54,7 @@ No harness at all? The skill is pure bash + markdown. Clone it anywhere and run 
 ```
 SKILL.md              # the skill (thin: picks tier, runs script, fills 20%; carries `version:`)
 scripts/init.sh       # zero-token scaffold (detection + auto blocks + imports + bundle, --lang auto|pt|en)
-scripts/index.sh      # recall index: table of contents and entry search for LEARNINGS/BUGS
+scripts/index.sh      # recall index: table of contents and entry search for LEARNINGS/BUGS/memory
 scripts/hook.sh       # agent hook payloads: recall by file (PreToolUse) + budget warning (PostToolUse)
 scripts/install.sh    # links/copies the skill into your harnesses
 .githooks/pre-commit  # local checks mirroring CI (enable: git config core.hooksPath .githooks)
@@ -86,9 +86,10 @@ never auto-write).
 - Frontmatter `updated/tier` (script-owned) + `<!-- auto:start -->` blocks (script-only).
 - Optional code index in `MAP.md` (`init.sh --index`): tables + RLS, SQL functions, edge functions and routes with `file:line`, regenerated on every run — a grep index, not a graph.
 - Optional `AGENTS.md` bundle (`init.sh --bundle`): verbatim mirror of the files the import policy loads (MAP always; STATUS + LEARNINGS at tier 2+; TODO while `active: true`; WORKFLOW if it exists), for harnesses that don't expand `@imports`. Opt-in, refreshed on every later run, and whatever you wrote outside the block is preserved.
-- `init.sh --check` is read-only (writes nothing) and exits 1 on: missing tier files, over-budget manual parts, unbalanced markers, a placeholder `updated:`, imports missing or off-policy, a stale bundle, or a stale code index.
+- `init.sh --check` is read-only (writes nothing) and exits 1 on: missing tier files, over-budget manual parts (including the memory pointer list), unbalanced markers, a placeholder `updated:`, a memory pointer that does not resolve, a `memory/` file imported into `CLAUDE.md`, imports missing or off-policy, a stale bundle, a stale code index.
 - The bundle is derived, so `AGENTS.md` is safe to gitignore (this repo does) — or commit it when the team wants the context to travel with the checkout. Same call you already make for `.claude/context/`; `--check` keeps it honest either way.
 - Typing a context file by hand is the one thing that breaks the model: the script owns the `auto` blocks and refuses to touch a file whose markers are unbalanced.
 - One line per fact with tags: `- [2026-09-28] [pytest] fact — consequence`.
 - `BUGS.md` is never imported — `grep` the error message, or `scripts/index.sh` for a table of contents and entry-level search (`index.sh TERM...`, `index.sh -x` for what was rejected).
-- Budgets: STATUS/TODO 60 lines, LEARNINGS 100, MAP 60 — counted outside the `<!-- auto -->` blocks, which belong to the script.
+- `memory/` (tier 2+) is the cold tier: a tag that outgrows `LEARNINGS.md` moves there whole, verdicts included, and leaves one pointer. Never imported, searched with `index.sh`, no budget, and `--check` fails on a pointer that no longer resolves.
+- Budgets: STATUS/TODO 60 lines, LEARNINGS 100 (+15 for the memory pointer list), MAP 60 — counted outside the `<!-- auto -->` blocks, which belong to the script.

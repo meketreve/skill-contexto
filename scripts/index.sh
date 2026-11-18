@@ -7,8 +7,9 @@
 #   -x        only entries marked [✗] (tried and rejected)
 #   -l        list every entry (same as a search that matches all)
 #   -n N      cap the listing (default 20; 0 = no cap)
-# Reads .claude/context/LEARNINGS*.md and BUGS*.md. Never writes anything: printed fresh
-# on every call, so it can't go stale the way a saved index does.
+# Reads .claude/context/LEARNINGS*.md, BUGS*.md and memory/*.md — the long-term memory
+# the import policy leaves out on purpose. Never writes anything: printed fresh on every
+# call, so it can't go stale the way a saved index does.
 # An entry is a `- [YYYY-MM-DD] …` bullet (with its continuation lines), any other top-level
 # bullet, or a `## YYYY-MM-DD …` heading block (BUGS). Other headings are sections.
 # Case-insensitive for ASCII only: accented capitals must match as written.
@@ -28,17 +29,17 @@ while [ $# -gt 0 ]; do
     -x) REJ=1; shift ;;
     -l) ALL=1; shift ;;
     -n) CAP="${2:-20}"; shift 2 ;;
-    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) TERMS="$TERMS${TERMS:+ }$1"; shift ;;
   esac
 done
 
 CTX="$DIR/.claude/context"
 shopt -s nullglob
-FILES=("$CTX"/LEARNINGS*.md "$CTX"/BUGS*.md)
+FILES=("$CTX"/LEARNINGS*.md "$CTX"/BUGS*.md "$CTX"/memory/*.md)
 shopt -u nullglob
 if [ "${#FILES[@]}" -eq 0 ]; then
-  echo "no LEARNINGS*.md or BUGS*.md in $CTX" >&2
+  echo "no LEARNINGS*.md, BUGS*.md or memory/*.md in $CTX" >&2
   exit 1
 fi
 
@@ -73,7 +74,13 @@ entries() {
       }
       return b s
     }
-    FNR == 1 { flush(); fname = FILENAME; sub(/.*\//, "", fname); sect = ""; inc = 0 }
+    FNR == 1 {
+      flush()
+      fname = FILENAME
+      if (fname ~ /\/memory\//) { sub(/.*\/memory\//, "", fname); fname = "memory/" fname }
+      else sub(/.*\//, "", fname)
+      sect = ""; inc = 0
+    }
     /^<!--/ { inc = 1 }
     inc { if (/-->/) inc = 0; next }
     /^#+ / {

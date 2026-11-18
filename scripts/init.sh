@@ -690,7 +690,7 @@ CHECK_BAD=0
 check_fail() { echo "check: $*" >&2; CHECK_BAD=$((CHECK_BAD + 1)); }
 
 check_mode() { # tier
-  local t="$1" f base max n claude="$DIR/CLAUDE.md" agents="$DIR/AGENTS.md" tmp
+  local t="$1" f base max n np tgt claude="$DIR/CLAUDE.md" agents="$DIR/AGENTS.md" tmp
   say "check: dir=$DIR tier=$t lang=$LANG_N"
   # 1. The files this tier calls for.
   while IFS= read -r f; do
@@ -717,7 +717,29 @@ check_mode() { # tier
       [ "$n" -le "$max" ] || check_fail "$base: $n lines outside auto blocks, budget $max — summarize into 1 line or delete"
     fi
   done
-  # 3. Imports against the policy.
+  # 3. Long-term memory: every pointer resolves, the pointer list has its own budget, and
+  #    the folder is never imported (recall is on demand, via index.sh).
+  if [ -f "$CTX/LEARNINGS.md" ]; then
+    np="$(grep -cE '^- \[[0-9]{4}-[0-9]{2}-[0-9]{2}\] \[[^]]*\] → memory/' "$CTX/LEARNINGS.md" || true)"
+    [ "${np:-0}" -le 15 ] || check_fail "LEARNINGS.md: ${np} memory pointers, budget 15 — merge topics into fewer files"
+    while IFS= read -r tgt; do
+      [ -n "$tgt" ] || continue
+      [ -f "$CTX/$tgt" ] || check_fail "LEARNINGS.md: pointer to $tgt, which does not exist"
+    done < <(grep -oE '^- \[[0-9]{4}-[0-9]{2}-[0-9]{2}\] \[[^]]*\] → memory/[^[:space:]]+' "$CTX/LEARNINGS.md" | sed 's/.*→ //' || true)
+  fi
+  if [ -d "$CTX/memory" ]; then
+    for f in "$CTX"/memory/*.md; do
+      [ -f "$f" ] || continue
+      base="memory/${f##*/}"
+      grep -qE '^updated:[[:space:]]*(AAAA|YYYY)-MM-DD' "$f" \
+        && check_fail "$base: updated: is still the template placeholder"
+      if [ -f "$claude" ]; then
+        grep -qF "@.claude/context/$base" "$claude" \
+          && check_fail "CLAUDE.md imports $base, which is never imported (recall via index.sh)"
+      fi
+    done
+  fi
+  # 4. Imports against the policy.
   if [ -f "$claude" ]; then
     while IFS= read -r f; do
       grep -qF "@${f#"$DIR"/}" "$claude" || check_fail "CLAUDE.md is missing the import @${f#"$DIR"/}"
@@ -728,7 +750,7 @@ check_mode() { # tier
     grep -qF '@.claude/context/BUGS.md' "$claude" \
       && check_fail "CLAUDE.md imports BUGS.md, which is never imported (grep the error text instead)"
   fi
-  # 4. Bundle freshness — only when the block exists, since the bundle is opt-in.
+  # 5. Bundle freshness — only when the block exists, since the bundle is opt-in.
   if [ -f "$agents" ] && grep -qF "$BUNDLE_START" "$agents"; then
     if markers_balanced "$agents" "$BUNDLE_START" "$BUNDLE_END"; then
       tmp="$(mktemp "${TMPDIR:-/tmp}/init.XXXXXX")"
@@ -742,7 +764,7 @@ check_mode() { # tier
       check_fail "AGENTS.md: unbalanced bundle block"
     fi
   fi
-  # 5. Index freshness — same idea: --check cannot regenerate it, but it can say whether
+  # 6. Index freshness — same idea: --check cannot regenerate it, but it can say whether
   # the block still matches what the code says today.
   if [ -f "$CTX/MAP.md" ] && grep -qF "$INDEX_START" "$CTX/MAP.md"; then
     tmp="$(mktemp "${TMPDIR:-/tmp}/init.XXXXXX")"

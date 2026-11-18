@@ -40,7 +40,8 @@ tier: 2
   - what failed before: `grep -n '\[✗\]' .claude/context/LEARNINGS*.md`
   - what holds today in an area: `grep -n '\[rede\] \[✓\]' .claude/context/LEARNINGS*.md`
   - what changed: `grep -n '\[↻' .claude/context/LEARNINGS*.md`
-- Entry-level recall: `scripts/index.sh` (table of contents), `index.sh TERM...` (matching entries, all their lines, newest first), `index.sh -x` (only `[✗]`). Reads `LEARNINGS*.md` and `BUGS*.md`, writes nothing.
+- Entry-level recall: `scripts/index.sh` (table of contents), `index.sh TERM...` (matching entries, all their lines, newest first), `index.sh -x` (only `[✗]`). Reads `LEARNINGS*.md`, `BUGS*.md` and `memory/*.md`, writes nothing.
+- Long-term memory (`.claude/context/memory/<tag>.md`, tier 2+): cold storage for the same entry format as `LEARNINGS.md`, frontmatter with `updated:` on top. A tag that outgrows the hot file moves there **whole**, verdicts included, and leaves one pointer in `LEARNINGS.md` under `## Long-term memory` (`## Long-term memory` / `## Memória de longo prazo`, following the template language): `- [YYYY-MM-DD] [tag] → memory/<tag>.md — N entries: gist`. Nothing is deleted. Files appear on first promotion (`mkdir -p`), are never scaffolded by `init.sh`, never imported and never bundled; `--check` only verifies that each pointer resolves and that the pointer list stays inside 15 lines.
 - Superseding: mark the old line `[↻ date]` and write the new one; don't edit the old line into the new decision, or the history of why is lost. At the budget, a `[↻]` line can shrink to its gist — a `[✗]` line stays.
 - `BUGS.md`: each block opens with `## YYYY-MM-DD — short title` and contains the literal error message. Its `updated:` is stamped like every other file.
 - Old format (no frontmatter, or no auto block where the template has one): the script warns `old format:` and **does not create** what is missing — it adds neither frontmatter nor block — but it **does refresh** an auto block that already exists and stamps `updated:` when the key is there. `--migrate` puts the template's frontmatter on top and its auto section at the end, keeping the text (backup in `FILE.bak`).
@@ -55,10 +56,10 @@ tier: 2
     "instructions": [".claude/context/STATUS.md", ".claude/context/MAP.md"] }
   ```
 - Per tier: `MAP` always; `STATUS` and `LEARNINGS` at tier 2+ (tier 3 included); `TODO` only while `active: true`; `WORKFLOW` only if it exists.
-- `BUGS.md` never goes into imports — recipe: `grep -i "<error excerpt>" .claude/context/BUGS.md`.
+- `BUGS.md` and `memory/*.md` never go into imports — recipes: `grep -i "<error excerpt>" .claude/context/BUGS.md`, and `scripts/index.sh <term>` for memory.
 
 ## Budgets
 
-- `STATUS.md` / `TODO.md`: 60 lines. `LEARNINGS.md`: 100. `MAP.md`: 60 — all counted **outside the auto blocks**. The script owns what is inside `<!-- auto:start -->…<!-- auto:end -->`; it does not count toward the budget and is never trimmed by hand (it would come back on the next `init.sh` run anyway). `BUGS.md` and `WORKFLOW.md` have no budget in `--check`.
+- `STATUS.md` / `TODO.md`: 60 lines. `LEARNINGS.md`: 100, plus 15 for its `Long-term memory` pointer list. `MAP.md`: 60 — all counted **outside the auto blocks**. The script owns what is inside `<!-- auto:start -->…<!-- auto:end -->`; it does not count toward the budget and is never trimmed by hand (it would come back on the next `init.sh` run anyway). `BUGS.md`, `WORKFLOW.md` and `memory/*.md` have no budget in `--check`.
 - Measure the manual part: `awk '/<!-- auto:start/{s=1} !s{n++} /<!-- auto:end/{s=0} END{print n+0}' FILE` — or run `init.sh --check`, which measures the budgets for you and also checks missing files, markers, the `updated:` placeholder, off-policy imports and a stale bundle (read-only, exits 1 when it finds something).
-- Past the budget: summarize "Done" into 1 line or delete; `git log` keeps the rest. `[✗]` lines are the exception — shrink, never delete.
+- Past the budget: promote a whole `LEARNINGS` tag to `memory/<tag>.md` and leave the pointer (the only step that keeps knowledge); only then summarize "Done" into 1 line or delete — `git log` keeps the rest. `[✗]` lines are the exception — they travel to `memory/` with their entry, and shrink but are never deleted. `memory/` itself has no budget.

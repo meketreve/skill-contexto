@@ -6,7 +6,8 @@ tier: 2
 # Learnings
 
 <!-- BUDGET: 100 lines outside auto blocks. One line per fact, greppable format: `- [YYYY-MM-DD] [tag] fact — consequence`.
-     What was tried or decided gets a verdict after the tag: [✓] tested and kept, [✗] tried and rejected (never delete), [↻ YYYY-MM-DD] superseded by that day's entry. -->
+     What was tried or decided gets a verdict after the tag: [✓] tested and kept, [✗] tried and rejected (never delete), [↻ YYYY-MM-DD] superseded by that day's entry.
+     Write the line the moment the fact appears, not only at the handoff: a session that compacts first loses whatever was never written. -->
 
 ## User preferences
 
@@ -25,3 +26,11 @@ tier: 2
 - [YYYY-MM-DD] [decision] [✓] what — why, and how it was tested
 - [YYYY-MM-DD] [decision] [✗] what was tried — why it didn't work
 - [YYYY-MM-DD] [decision] [↻ YYYY-MM-DD] what used to hold — replaced by that day's entry
+
+## Long-term memory
+
+<!-- BUDGET: 15 lines. One pointer per topic: `- [YYYY-MM-DD] [tag] → memory/<tag>.md — N entries: gist`.
+     A tag that overflows moves WHOLE to `memory/<tag>.md` (same line format, verdicts included) and leaves one pointer here.
+     Nothing is deleted. The folder is never imported: recall with `index.sh <term>` or `index.sh -x`. -->
+
+- [YYYY-MM-DD] [tag] → memory/tag.md — N entries: gist of what is there

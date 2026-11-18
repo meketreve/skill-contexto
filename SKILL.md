@@ -1,6 +1,6 @@
 ---
 name: contexto
-description: Bootstraps lean project context in 3 tiers (MAP/STATUS/TODO/LEARNINGS/BUGS/WORKFLOW) with a zero-token script scaffold, and closes a session by updating those files. Use when the user asks to prepare/bootstrap project context, montar/iniciar o contexto, build a MAP/STATUS, organize project memory, or for a handoff — encerrar a sessão, passar o bastão, or before suggesting /clear.
+description: Bootstraps lean project context in 3 tiers (MAP/STATUS/TODO/LEARNINGS/BUGS/WORKFLOW) with a zero-token script scaffold, a cold `memory/` tier for long-term learnings, and closes a session by updating those files. Use when the user asks to prepare/bootstrap project context, montar/iniciar o contexto, build a MAP/STATUS, organize project memory, or for a handoff — encerrar a sessão, passar o bastão, or before suggesting /clear.
 license: MIT
 version: 1.0.0
 ---
@@ -37,7 +37,7 @@ Never create a file the tier doesn't call for. Deciding **not** to create is par
 
 **`--bundle` (opt-in):** creates/updates a `<!-- auto:start bundle -->`…`<!-- auto:end bundle -->` block in the target project's `AGENTS.md` with the very files the import policy loads, **verbatim** (MAP always; STATUS + LEARNINGS at tier 2+; TODO while `active: true`; WORKFLOW if it exists), each one preceded by `<!-- from .claude/context/X.md -->`. Without the flag and without the block, nothing is created; once present, it is refreshed on every run. User text outside the block is never touched: on an `AGENTS.md` that already exists the script only appends its own section (`## Project context (mirror of .claude/context/)`, or the PT equivalent under `--lang pt`), and when it creates the file it writes a header saying the truth lives in `.claude/context/` and that `--check` verifies the bundle.
 
-**`--check` (read-only):** writes nothing in the project, does not even create `.claude/`, and never prompts; it exits 1 when it finds a problem. It checks: files the tier calls for and are missing; the manual-part budget (60/60/60/100 outside auto blocks); unbalanced `auto` markers; `updated:` still on a placeholder (`AAAA-MM-DD`/`YYYY-MM-DD`); imports missing or off-policy (TODO imported while `active: false`, BUGS imported); a stale bundle; a stale code index. It is the portable substitute for the `PostToolUse` budget warning, which only exists in Claude Code.
+**`--check` (read-only):** writes nothing in the project, does not even create `.claude/`, and never prompts; it exits 1 when it finds a problem. It checks: files the tier calls for and are missing; the manual-part budget (60/60/60/100 outside auto blocks, and 15 for the `LEARNINGS.md` memory pointer list); unbalanced `auto` markers; `updated:` still on a placeholder (`AAAA-MM-DD`/`YYYY-MM-DD`); a `memory/` pointer whose file no longer exists; a `memory/` file imported into `CLAUDE.md`; imports missing or off-policy (TODO imported while `active: false`, BUGS imported); a stale bundle; a stale code index. It is the portable substitute for the `PostToolUse` budget warning, which only exists in Claude Code.
 
 **Unbalanced auto block (no `end`):** the script warns and **does not touch the file** (`skipped FILE: unbalanced ...`), instead of deleting everything from the marker to EOF. Applies to the `auto` block, to `auto:start index` and to the bundle.
 
@@ -53,6 +53,8 @@ Write in the user's language (templates ship in PT-BR and English via `--lang`; 
 - `STATUS.md`: "current state" in 2–4 lines and "next phase" with file/entry point. The auto block already holds raw `git log`/`git status`.
 - `TODO.md`: only when active (frontmatter `active: true`).
 - `LEARNINGS.md`: one line per fact as `- [YYYY-MM-DD] [tag] fact — consequence`. Only real corrections, version/API/CI gotchas, or decisions with rationale. A line that records something tried or decided carries a verdict after the tag: `[✓]` tested and kept, `[✗]` tried and rejected (the reason goes after —), `[↻ YYYY-MM-DD]` superseded by that day's entry. Never delete a `[✗]`: it is what stops the next session from trying it again.
+- **Write the line when the fact appears, not only at the handoff.** A session that compacts before closing takes unwritten knowledge with it; the file is the only memory that survives compaction.
+- **Long-term memory (`memory/`, tier 2+):** hot facts stay in `LEARNINGS.md`. When a tag grows past a handful of lines, or the file nears its budget, move that whole tag — verbatim, verdicts included — to `.claude/context/memory/<tag>.md` and leave one pointer under `## Long-term memory`: `- [YYYY-MM-DD] [tag] → memory/<tag>.md — N entries: gist`. The pointer list has its own 15-line budget; past it, merge topics. `memory/` is never imported — it is reached through `index.sh`, and `--check` verifies the pointers still resolve.
 - `BUGS.md` (tier 3): one block per bug with the literal error message (so `grep` finds it).
 - `WORKFLOW.md` (tier 3): only if the user adopted an explicit process. One numbered step per line, `step → verify: check`, where the check is a command or an observable result, never "it works".
 
@@ -62,7 +64,8 @@ Write in the user's language (templates ship in PT-BR and English via `--lang`; 
 - `LEARNINGS.md`: imported at tier 2+ (tier 3 included); at tier 1, consult on demand via grep.
 - `TODO.md`: imported only while `active: true`.
 - `BUGS.md`: never imported — `grep` the error message when needed.
-- Recall from anything not imported (`BUGS.md`, a big `LEARNINGS*.md`): `<skill-dir>/scripts/index.sh` first, before reading or grepping blind. No args prints a table of contents (entries per section, verdict counts, line numbers to `Read` with offset); `index.sh TERM...` lists matching **entries** — whole multi-line entries, one line each, newest first; `-x` lists only `[✗]`, what was already tried and rejected. It is printed fresh on every call and never saved, so it can't go stale. Exact error text is still a job for `grep`.
+- Recall from anything not imported (`BUGS.md`, `memory/*.md`, a big `LEARNINGS*.md`): `<skill-dir>/scripts/index.sh` first, before reading or grepping blind. No args prints a table of contents (entries per section, verdict counts, line numbers to `Read` with offset); `index.sh TERM...` lists matching **entries** — whole multi-line entries, one line each, newest first; `-x` lists only `[✗]`, what was already tried and rejected. It is printed fresh on every call and never saved, so it can't go stale. Exact error text is still a job for `grep`.
+- `memory/` is **never** imported and never bundled: it is the cold tier. Only its pointers live in `LEARNINGS.md`, which is imported.
 - `WORKFLOW.md`: imported only if it exists.
 
 **Who reads what (per-harness carriers):** Claude Code expands `@path` imports in the root `CLAUDE.md`. **DSH does not interpret `@path`** — it reads the project root's `AGENTS.md`/`CLAUDE.md` literally (source: `dsh-agent-instructions` README: "`@path` imports are not interpreted") — which is what `--bundle` is for. In opencode, the canonical carrier is the `instructions` field in `opencode.json`; the root `CLAUDE.md` is the fallback.
@@ -71,7 +74,7 @@ Write in the user's language (templates ship in PT-BR and English via `--lang`; 
 
 - `STATUS.md` / `TODO.md`: 60 lines max. `LEARNINGS.md`: 100. `MAP.md`: 60. **Counted outside `<!-- auto:start -->…<!-- auto:end -->` blocks** — the auto block is the script's, so it neither counts nor gets trimmed by hand. (`BUGS.md` and `WORKFLOW.md` have no budget in `--check`.)
 - Measure: `awk '/<!-- auto:start/{s=1} !s{n++} /<!-- auto:end/{s=0} END{print n+0}' FILE` — or let `--check` measure it for you.
-- Past that, summarize the manual part into 1 line or delete — `git log` is the source of truth. Exception: `[✗]` lines in LEARNINGS are never deleted (shrink them to the gist instead).
+- Past that: in `LEARNINGS.md`, promote a whole tag to `memory/` first (see §3) — only then summarize into 1 line or delete. `[✗]` lines are never deleted; they travel to `memory/` with their entry, and a `[↻]` line left behind shrinks to its gist. In the other files, summarize or delete — `git log` is the source of truth.
 
 ## 6. Hooks (optional)
 
@@ -90,7 +93,7 @@ On request only — never from a hook. Work from **this conversation**; don't re
 
 1. `STATUS.md`: rewrite "current state" and "next phase" (concrete entry point and `→ verify:`), update pending items, move what finished to "done", trim "done" past ~10 items.
 2. `TODO.md`: drop what finished, keep half-done work in "now", add findings to "later". Queue empty → `active: false`.
-3. `LEARNINGS.md`: this session's corrections, gotchas and decisions, with the verdict (`[✓]`/`[✗]`/`[↻ date]`) on anything tried or decided. Skip if there were none.
+3. `LEARNINGS.md`: this session's corrections, gotchas and decisions, with the verdict (`[✓]`/`[✗]`/`[↻ date]`) on anything tried or decided. Over budget, or with a tag past ~6 lines: promote that tag to `memory/<tag>.md` and leave the pointer — don't delete. Skip if there were none.
 4. `BUGS.md`: fixes that meet the rule (broken build/CI, reported bug, >2 attempts), with the literal error message.
 5. `MAP.md`: paths that took more than 2–3 searches, commands discovered.
 

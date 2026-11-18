@@ -202,6 +202,33 @@ jobs:
           ./scripts/index.sh --dir /tmp/smoke-en tablet | grep -c "LEARNINGS.md:.*heartbeat"
           printf -- '- [2026-08-25] [ui] the [✗] icon is red\n' >> "$L"     # ✗ in the text is no verdict
           test "$(./scripts/index.sh --dir /tmp/smoke-en -x | grep -c 2026-08)" = 1
+      - name: memory (pointers, cold recall)
+        run: |
+          M=/tmp/smoke-mem; rm -rf $M
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $M >/dev/null
+          C=$M/.claude/context
+          mkdir -p $C/memory
+          printf -- '---\nupdated: 2026-09-01\n---\n\n# net\n\n- [2026-09-01] [net] [✗] free the name on close — never fires on minimize\n- [2026-09-02] [net] [✓] heartbeat every 5 s in src/net.ts frees it\n' > $C/memory/net.md
+          printf -- '- [2026-09-03] [net] → memory/net.md — 2 entries: socket lifecycle\n' >> $C/LEARNINGS.md
+          # recall reaches the cold tier; -x still filters by verdict
+          ./scripts/index.sh --dir $M | grep -c 'net.md — 2 entries'
+          ./scripts/index.sh --dir $M -x | grep -c 'on close'
+          ./scripts/index.sh --dir $M heartbeat | grep -c 'memory/net.md'
+          ./scripts/init.sh --check --tier 2 --lang en --dir $M
+          # a pointer whose file vanished is caught
+          mv $C/memory/net.md $C/memory/net2.md
+          ( ./scripts/init.sh --check --tier 2 --lang en --dir $M 2>&1 || true ) | grep -c 'does not exist'
+          mv $C/memory/net2.md $C/memory/net.md
+          # the cold folder is never imported
+          echo '@.claude/context/memory/net.md' >> $M/CLAUDE.md
+          ( ./scripts/init.sh --check --tier 2 --lang en --dir $M 2>&1 || true ) | grep -c 'never imported'
+          sed -i '\|@.claude/context/memory/net.md|d' $M/CLAUDE.md
+          # the pointer list has its own budget
+          for i in $(seq 1 16); do printf -- "- [2026-09-04] [t$i] → memory/net.md — x\n" >> $C/LEARNINGS.md; done
+          ( ./scripts/init.sh --check --tier 2 --lang en --dir $M 2>&1 || true ) | grep -c 'pointers, budget 15'
+          # a memory file still on the placeholder date is caught
+          printf -- '---\nupdated: YYYY-MM-DD\n---\n\n- [2026-09-05] [x] fato\n' > $C/memory/old.md
+          ( ./scripts/init.sh --check --tier 2 --lang en --dir $M 2>&1 || true ) | grep -c 'memory/old.md: updated: is still the template placeholder'
       - name: hook.sh (recall by file, budget, silence, valid JSON)
         run: |
           D=/tmp/smoke-en
