@@ -12,7 +12,9 @@ unless the coordinator promotes it.
 2. If the context is missing and the task is multi-step, run the scaffold once
    (`init.sh --tier auto`, or `/contexto`) and fill only the judgment sections.
 3. Load the skill once (`skill` tool, id `contexto`) or use the opencode tools
-   `contexto_recall` / `contexto_brief` / `contexto_status` / `contexto_check`.
+   `contexto_recall` / `contexto_brief` / `contexto_status` / `contexto_check` / `contexto_checked`.
+5. **Read `checked:` timestamps** with `contexto_checked` to gauge freshness of each context file.
+   Files showing `never checked` or stale dates (>7 days) need `contexto_check` before trusting.
 4. Treat `MAP.md` and `STATUS.md` as claims from another session. When they contradict the
    repo, run `contexto_check` (or `init.sh --check`) and verify the cited path before acting.
 
@@ -76,6 +78,9 @@ the end of a multi-step task:
 4. `BUGS.md`: only the fixes that meet the rule, with the literal error.
 5. `MAP.md`: paths that cost 2-3 searches, commands discovered.
 6. Run `contexto_check` / `init.sh --check --quiet`; fix what you can touch.
+7. **`contexto_check` updates `checked:` timestamps** — the coordinator should verify the
+   output shows `check: ok` so the `checked:` field in each context file reflects the
+   current verification date.
 
 ## Anti-patterns
 

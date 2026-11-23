@@ -269,9 +269,9 @@ export default Plugin.define({
       })
 
       editor.add({
-        name: "status",
+        name: "health",
         description:
-          "One-line read-only health check of the project context: missing files, budgets, carriers and stale bundle/index.",
+          "One-line read-only health check of the project context (uses --check --quiet): missing files, budgets, carriers and stale bundle/index.",
         input: { type: "object", properties: {}, additionalProperties: false },
         options: { namespace: "contexto", codemode: true },
         execute: async () => {
@@ -284,6 +284,21 @@ export default Plugin.define({
               ? `check: ok — tier ${r.tier}${r.warnings > 0 ? ` (${r.warnings} warning${r.warnings === 1 ? "" : "s"})` : ""}`
               : `check: ${r.problems} problem(s) — ${r.messages.filter((m) => m.kind === "problem").map((m) => m.text).join("; ") || "see contexto_check"}`,
           }
+        },
+      })
+
+      // status: dedicated --status flag (lighter than --check, warns on budget but does not fail)
+      editor.add({
+        name: "status",
+        description:
+          "One-line health check using init.sh --status: missing files, budgets (warn only), carrier. Does not fail on budget overruns.",
+        input: { type: "object", properties: {}, additionalProperties: false },
+        options: { namespace: "contexto", codemode: true },
+        execute: async () => {
+          if (!runner) return { content: "contexto: scripts not found; use the skill's init.sh --status" }
+          const { stdout, stderr, code } = await runner.raw("init.sh", ["--dir", root, "--status"])
+          const text = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n")
+          return { content: text || (code === 0 ? "status: ok" : `status: failed (exit ${code})`) }
         },
       })
 

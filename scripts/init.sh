@@ -1346,13 +1346,13 @@ check_mode() { # tier
     else
       say "check: ok — nothing missing, stale, over budget or off-policy"
     fi
+    # Stamp checked: timestamp in frontmatter of context files when check passes
+    if [ "$JSON" != 1 ]; then
+      stamp_checked "$CTX"
+    fi
     return 0
   fi
-  # Stamp checked: timestamp in frontmatter of context files when check passes
-  if [ "$CHECK_BAD" = 0 ] && [ "$JSON" != 1 ]; then
-    stamp_checked "$CTX"
-  fi
-  return 0
+  return 1
 }
 
 # --- --status: one-line health check (lighter than --check) ---
