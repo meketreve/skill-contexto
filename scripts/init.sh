@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # init.sh — 3-tier context scaffold, zero tokens spent.
-# Usage: init.sh [--tier auto|1|2|3] [--dir PROJECT] [--lang auto|pt|en] [--yes] [--todo] [--migrate] [--index] [--bundle] [--opencode] [--check] [--quiet] [--json] [--dry-run]
+# Usage: init.sh [--tier auto|1|2|3] [--dir PROJECT] [--lang auto|pt|en] [--yes] [--todo] [--migrate] [--index] [--bundle] [--opencode] [--check] [--status] [--quiet] [--json] [--dry-run]
 # Only creates missing files; never overwrites manual content.
 # <!-- auto:start --> … <!-- auto:end --> blocks belong to the script.
 set -euo pipefail
@@ -19,6 +19,7 @@ WANT_INDEX=0
 WANT_BUNDLE=0
 WANT_OPENCODE=0
 CHECK=0
+STATUS=0
 QUIET=0
 JSON=0
 DRY_RUN=0
@@ -46,8 +47,9 @@ usage() {
   say "           once added, every run refreshes it"
   say "  --check  read-only: report stale bundle, marker/import/budget problems and broken"
   say "           memory pointers; writes nothing, exits 1 when it finds something"
-  say "  --quiet  with --check: suppress the header and the success detail, one line on success"
-  say "  --json   with --check: one JSON object instead of prose (ok, tier, dir, problems, warnings, messages)"
+  say "  --status one-line health: tier, budgets, carriers, missing files (lighter than --check)"
+  say "  --quiet  with --check/--status: suppress header, one line on success"
+  say "  --json   with --check/--status: one JSON object instead of prose"
   say "  --dry-run print would create/would update/untouched for every file, without writing"
 }
 
@@ -68,6 +70,7 @@ while [ $# -gt 0 ]; do
     --bundle) WANT_BUNDLE=1; shift ;;
     --opencode) WANT_OPENCODE=1; shift ;;
     --check) CHECK=1; shift ;;
+    --status) STATUS=1; shift ;;
     --quiet) QUIET=1; shift ;;
     --json) JSON=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -86,8 +89,13 @@ case "$LANG_OPT" in
 esac
 # --check never prompts: on a tier 1-2 tie it reports against the multi-session tier.
 if [ "$CHECK" = 1 ]; then ASSUME_YES=1; fi
+if [ "$STATUS" = 1 ]; then ASSUME_YES=1; fi
 if [ "$DRY_RUN" = 1 ] && [ "$CHECK" = 1 ]; then
   echo "init.sh: --dry-run and --check are mutually exclusive" >&2
+  exit 1
+fi
+if [ "$STATUS" = 1 ] && [ "$CHECK" = 1 ]; then
+  echo "init.sh: --status and --check are mutually exclusive" >&2
   exit 1
 fi
 # --dry-run never prompts and never touches the project.
@@ -1347,6 +1355,98 @@ check_mode() { # tier
   return 0
 }
 
+# --- --status: one-line health check (lighter than --check) ---
+status_mode() { # tier
+  local t="$1" f base max n
+  [ "$QUIET" = 1 ] || [ "$JSON" = 1 ] || say "status: dir=$DIR tier=$t lang=$LANG_N"
+  local missing=0 over=0 carrier_ok=0 carrier_note=""
+
+  # 1. Missing files for this tier.
+  while IFS= read -r f; do
+    if [ ! -f "$f" ]; then
+      missing=$((missing + 1))
+      [ "$JSON" != 1 ] && say "status: missing ${f##*/} — tier $t calls for it"
+    fi
+  done < <(wanted_sources "$t")
+
+  # 2. Budgets (warn only, don't fail).
+  for f in "$CTX"/MAP.md "$CTX"/STATUS.md "$CTX"/TODO.md "$CTX"/LEARNINGS.md "$CTX"/BUGS.md "$CTX"/WORKFLOW.md; do
+    [ -f "$f" ] || continue
+    base="${f##*/}"
+    case "$base" in
+      STATUS.md|TODO.md|MAP.md) max=60 ;;
+      LEARNINGS.md) max=100 ;;
+      *) max=0 ;;
+    esac
+    if [ "$max" -gt 0 ]; then
+      n="$(awk '/<!-- auto:start/{s=1} !s{n++} /<!-- auto:end/{s=0} END{print n+0}' "$f")"
+      if [ "$n" -gt "$max" ]; then
+        over=$((over + 1))
+        [ "$JSON" != 1 ] && say "status: $base over budget ($n/$max)"
+      fi
+    fi
+  done
+
+  # 3. opencode carrier (hard failure only if project has opencode config).
+  local oc_conf oc_hard=0 oc_soft=0 oc_visible=0 oc_instr=0 oc_bundle=0
+  local -a oc_want=()
+  if [ -f "$DIR/opencode.json" ] || [ -f "$DIR/opencode.jsonc" ] || [ -d "$DIR/.opencode" ]; then
+    oc_hard=1
+  elif command -v opencode >/dev/null 2>&1 || command -v opencodeoc >/dev/null 2>&1; then
+    oc_soft=1
+  fi
+  if [ "$oc_hard" = 1 ] || [ "$oc_soft" = 1 ]; then
+    oc_conf="$(opencode_conf || true)"
+    while IFS= read -r f; do oc_want+=("${f#"$DIR"/}"); done < <(wanted_sources "$t")
+    if [ -n "$oc_conf" ]; then
+      if command -v python3 >/dev/null 2>&1; then
+        oc_rc=0
+        opencode_inspect "$oc_conf" "${oc_want[@]}" >/dev/null 2>&1 || oc_rc=$?
+        [ "$oc_rc" = 0 ] && { oc_instr=1; oc_visible=1; }
+      else
+        oc_instr=1
+        for w in "${oc_want[@]}"; do
+          grep -qF "\"$w\"" "$oc_conf" || oc_instr=0
+        done
+        if [ "$oc_instr" = 1 ]; then
+          oc_visible=1
+        else
+          carrier_note="opencode.json: cannot inspect instructions without python3"
+        fi
+      fi
+    fi
+    if [ -f "$DIR/AGENTS.md" ] && grep -qF "$BUNDLE_START" "$DIR/AGENTS.md"; then
+      oc_bundle=1
+      oc_visible=1
+    fi
+    if [ "$oc_instr" = 1 ] && [ "$oc_bundle" = 1 ]; then
+      carrier_note="opencode carriers duplicate .claude/context (AGENTS.md bundle + opencode.json instructions)"
+    fi
+    if [ "$oc_visible" != 1 ] && [ "$oc_hard" = 1 ]; then
+      carrier_note="opencode will not see .claude/context (V2 ignores CLAUDE.md) — run init.sh --opencode or --bundle"
+    fi
+  fi
+
+  if [ "$JSON" = 1 ]; then
+    printf '{"ok":%s,"tier":"%s","dir":"%s","missing":%d,"over_budget":%d,"carrier_ok":%s,"carrier_note":"%s"}\n' \
+      "$([ $missing -eq 0 ] && [ $over -eq 0 ] && [ -z "$carrier_note" ] && echo true || echo false)" \
+      "$(printf '%s' "$t" | json_esc)" \
+      "$(printf '%s' "$DIR" | json_esc)" \
+      "$missing" "$over" \
+      "$([ -z "$carrier_note" ] && echo true || echo false)" \
+      "$(printf '%s' "$carrier_note" | json_esc)"
+    [ $missing -eq 0 ] && [ $over -eq 0 ] && [ -z "$carrier_note" ]
+    return
+  fi
+
+  if [ $missing -gt 0 ] || [ $over -gt 0 ] || [ -n "$carrier_note" ]; then
+    [ -n "$carrier_note" ] && say "status: $carrier_note"
+    return 1
+  fi
+  [ "$QUIET" = 1 ] && say "status: ok" || say "status: ok — tier $t, $missing missing, $over over budget, carrier ok"
+  return 0
+}
+
 # --- --dry-run: same decisions as the scaffold, zero writes ---
 dry_file() { # file tier
   local f="$1" t="$2" b old
@@ -1443,6 +1543,10 @@ dry_run_plan() { # tier
 # --- files per tier ---
 if [ "$CHECK" = 1 ]; then
   check_mode "$TIER_N" || exit 1
+  exit 0
+fi
+if [ "$STATUS" = 1 ]; then
+  status_mode "$TIER_N" || exit 1
   exit 0
 fi
 if [ "$DRY_RUN" = 1 ]; then

@@ -310,6 +310,33 @@ export default Plugin.define({
         },
       })
 
+      // checked: read the `checked:` timestamp from context file frontmatter
+      // Returns when each file was last verified (not just updated)
+      editor.add({
+        name: "checked",
+        description:
+          "Read the 'checked:' timestamp from context file frontmatter. Shows when each file was last verified by --check. Use at session start to gauge freshness.",
+        input: { type: "object", properties: {}, additionalProperties: false },
+        options: { namespace: "contexto", codemode: true },
+        execute: async () => {
+          if (!runner) return { content: "contexto: scripts not found; use the skill's init.sh --check" }
+          const ctxDir = process.env.CONTEXTO_DIR
+            ? join(root, process.env.CONTEXTO_DIR)
+            : join(root, ".claude", "context")
+          const files = ["MAP.md", "STATUS.md", "TODO.md", "LEARNINGS.md", "BUGS.md", "WORKFLOW.md"]
+          const lines: string[] = []
+          for (const f of files) {
+            const path = join(ctxDir, f)
+            if (!existsSync(path)) continue
+            const content = readFileSync(path, "utf8")
+            const m = content.match(/^checked:\s*(.+)$/m)
+            lines.push(`${f}: ${m ? m[1].trim() : "never checked"}`)
+          }
+          if (lines.length === 0) return { content: "contexto: no context files found" }
+          return { content: lines.join("\n") }
+        },
+      })
+
       // promote: write a confirmed finding to LEARNINGS.md (hot), memory/<tag>.md (cold), or BUGS.md
       // The coordinator calls this after verifying a subagent's finding. Never call from a hook.
       editor.add({
@@ -460,6 +487,48 @@ export default Plugin.define({
 
       const s = sessions.get(event.sessionID)
       if (s) s.recalled.clear()
+    })
+
+    // Task-aware recall for child sessions (subagents).
+    // When a new session starts with source="subagent", extract key terms from the first
+    // user message and inject up to 3 relevant memory entries. This runs before the agent
+    // acts, so the subagent starts with relevant context instead of discovering it blindly.
+    await ctx.session.hook("context", async (event) => {
+      const meta = event.metadata ?? {}
+      const source = meta.source as string | undefined
+      if (source !== "subagent") return
+
+      // Only inject once per child session
+      const key = `subagent-recall-${event.sessionID}`
+      if (sessions.has(key)) return
+      sessions.set(key, { pending: new Set(), recalled: new Set(), warn: [] })
+
+      if (!runner) return
+
+      // Extract nouns from the first user message (heuristic: capitalized words, camelCase, snake_case)
+      const firstMsg = event.messages.find((m) => m.role === "user")
+      if (!firstMsg) return
+      const text = typeof firstMsg.content === "string" ? firstMsg.content : ""
+      const terms = Array.from(
+        new Set(
+          text
+            .match(/\b[A-Z][a-z]+(?:\.[A-Z][a-z]+)*\b|\b[a-z]+(?:_[a-z]+)+\b|\b[a-z]+(?:-[a-z]+)+\b/g) || [],
+        ),
+      ).slice(0, 5)
+      if (terms.length === 0) return
+
+      const hits = await search(terms, 3, false)
+      if (!hits) return
+
+      event.system.push({
+        type: "text",
+        text: [
+          "Project memory relevant to this task (auto-injected for subagent):",
+          "This is from .claude/context/, may be stale — verify before trusting.",
+          "",
+          hits,
+        ].join("\n"),
+      })
     })
 
     // Budget: measured here, delivered on the next request. console.warn reaches only the
