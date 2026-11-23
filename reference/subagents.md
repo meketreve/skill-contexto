@@ -2,6 +2,8 @@
 
 A subagent starts with a fresh context and cannot see the parent's transcript; its own transcript is not read by the parent either. Project memory does not reach it by itself — the skill has to hand it over, in both directions.
 
+For the full coordinator contract (session start, recall before delegating, promotion, close), see [`agent-integration.md`](agent-integration.md).
+
 ## Before spawning
 
 1. Turn the task into search terms and run `<skill-dir>/scripts/index.sh --dir PROJECT TERM...` — the task's nouns, the file it touches, the library involved. Paste the hits into the brief.

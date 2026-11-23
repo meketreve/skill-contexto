@@ -11,6 +11,8 @@
  *   session "compaction" the summarizer's own request: ask for the artifacts a paraphrase eats.
  *   tool "execute.before" remembers which files the session touched.
  *   tool "execute.after"  budget warning for the context files.
+ *   tools contexto_recall/brief/status/check: recall by task terms before delegating and a
+ *                        cheap read-only health check; they never write judgment content.
  *
  * Rules kept from hook.sh: it reminds, it never blocks, and it never writes judgment
  * content. Everything here is text injected into a request or a warning on stderr.
@@ -18,13 +20,20 @@
  * Install: drop this directory under .opencode/plugins/contexto (project) or
  * ~/.config/opencode/plugins/contexto (global), or list it in opencode.json `plugins`.
  * Reads PROJECT/.claude/context; stays silent when that directory is absent.
+ *
+ * Cross-platform: the shell scripts stay the source of truth, but they are reached through
+ * `scripts/win/ctx.mjs`, which execs them directly on POSIX and through WSL's bash on
+ * Windows (where there is no bash on PATH). The budget count is pure JS, so no `awk`.
  */
-import { execFileSync } from "node:child_process"
-import { existsSync } from "node:fs"
+import { execFile } from "node:child_process"
+import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 import { Plugin } from "@opencode/plugin"
+
+const run = promisify(execFile)
 
 /** Budgets that `--check` enforces too; kept in sync with SKILL.md §5. */
 const BUDGET: Record<string, number> = {
@@ -70,32 +79,63 @@ function scriptsDir(root: string): string | undefined {
   return candidates.find((dir) => existsSync(join(dir, "index.sh")))
 }
 
-/** index.sh prints nothing useful and exits 0 on an empty context; treat both as "no hit". */
-function recall(indexSh: string, root: string, term: string, cap: number): string {
-  try {
-    const out = execFileSync(indexSh, ["--dir", root, "-n", String(cap), term], {
-      encoding: "utf8",
-      timeout: 3000,
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-    return out && !out.includes("no entry matches") ? out.trim() : ""
-  } catch {
-    return ""
+/**
+ * One entry point for the scripts on every platform. `ctx.mjs` is a launcher, not a port:
+ * it runs the very same bash script, through WSL on Windows. Without it (an install from
+ * before the launcher existed) the script is exec'd directly, which is the POSIX behaviour.
+ */
+type RunResult = { stdout: string; stderr: string; code: number }
+type Runner = {
+  text: (script: string, args: string[]) => Promise<string>
+  raw: (script: string, args: string[]) => Promise<RunResult>
+}
+
+function makeRunner(scripts: string): Runner {
+  const launcher = join(scripts, "win", "ctx.mjs")
+  const hasLauncher = existsSync(launcher)
+  // A cold WSL VM takes seconds; the script itself is fast once the VM is up.
+  const timeout = process.platform === "win32" ? 20_000 : 3_000
+  const raw = async (script: string, args: string[]): Promise<RunResult> => {
+    const [command, argv] = hasLauncher
+      ? [process.execPath, [launcher, script, ...args]]
+      : [join(scripts, script), args]
+    try {
+      const { stdout, stderr } = await run(command, argv, { timeout, encoding: "utf8", windowsHide: true })
+      return { stdout: stdout ?? "", stderr: stderr ?? "", code: 0 }
+    } catch (error) {
+      const e = error as { stdout?: string; stderr?: string; code?: number | string }
+      return {
+        stdout: e.stdout ?? "",
+        stderr: e.stderr ?? "",
+        code: typeof e.code === "number" ? e.code : 1,
+      }
+    }
   }
+  return { text: async (script, args) => (await raw(script, args)).stdout, raw }
 }
 
 /** Manual lines outside <!-- auto:start -->…<!-- auto:end -->, as `--check` counts them. */
-function manualLines(file: string): number {
+export function manualLines(file: string): number {
+  let text: string
   try {
-    const out = execFileSync(
-      "awk",
-      ["/<!-- auto:start/{s=1} !s{n++} /<!-- auto:end/{s=0} END{print n+0}", file],
-      { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
-    )
-    return Number.parseInt(out.trim(), 10) || 0
+    text = readFileSync(file, "utf8")
   } catch {
     return 0
   }
+  const lines = text.split(/\r?\n/)
+  // awk reads one record per newline-terminated line, so a trailing newline is no extra line
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop()
+  let inside = false
+  let count = 0
+  for (const line of lines) {
+    if (line.includes("<!-- auto:start")) {
+      inside = true
+      continue
+    }
+    if (!inside) count++
+    if (line.includes("<!-- auto:end")) inside = false
+  }
+  return count
 }
 
 /** Per session: files touched by tools, ones already recalled, and pending warnings. */
@@ -109,8 +149,164 @@ export default Plugin.define({
     if (!existsSync(contextDir)) return
 
     const scripts = scriptsDir(root)
-    const indexSh = scripts ? join(scripts, "index.sh") : ""
-    const canRecall = Boolean(indexSh) && existsSync(indexSh)
+    const runner = scripts ? makeRunner(scripts) : undefined
+
+    /** Whole entries matching every term; empty string when there is no runner or no hit. */
+    const search = async (terms: string[], cap: number, rejected = false): Promise<string> => {
+      if (!runner || terms.length === 0) return ""
+      const args = ["--dir", root, "-n", String(cap)]
+      if (rejected) args.push("-x")
+      args.push(...terms)
+      const out = (await runner.text("index.sh", args)).trim()
+      return out && !out.includes("no entry matches") ? out : ""
+    }
+
+    /** index.sh prints nothing useful and exits 0 on an empty context; treat both as "no hit". */
+    const recall = async (term: string, cap: number): Promise<string> => search([term], cap)
+
+    // Native tools: the coordinator can recall by task terms before delegating, without
+    // building a script path or a shell command. They never write context content.
+    await ctx.tool.transform((editor) => {
+      editor.namespace({ name: "contexto", description: "Project memory stored in .claude/context" })
+
+      /** `--check --json` parsed once, so the tools never parse prose. */
+      const checkJson = async (args: string[]) => {
+        const { stdout, stderr, code } = await runner!.raw("init.sh", [...args, "--check", "--json"])
+        try {
+          return { ok: true as const, report: JSON.parse(stdout.trim()) as {
+            ok: boolean
+            tier: string
+            dir: string
+            problems: number
+            warnings: number
+            messages: { kind: string; text: string }[]
+          } }
+        } catch {
+          const text = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n")
+          return { ok: false as const, code, text }
+        }
+      }
+
+      const render = (report: { ok: boolean; problems: number; warnings: number; messages: { kind: string; text: string }[] }) => {
+        const lines = report.messages.map((m) =>
+          m.kind === "problem" ? `check: ${m.text}` : `check: ${m.kind}: ${m.text}`,
+        )
+        const verdict = report.ok
+          ? report.warnings > 0
+            ? `check: ok (${report.warnings} warning${report.warnings === 1 ? "" : "s"})`
+            : "check: ok"
+          : `check: ${report.problems} problem(s) — nothing was written`
+        return [...lines, verdict].join("\n")
+      }
+
+      editor.add({
+        name: "recall",
+        description:
+          "Search recorded project learnings, bugs and decisions by task terms. Use before delegating, before grepping blind, or when a file has history. Returns whole entries with file:line, newest first.",
+        input: {
+          type: "object",
+          properties: {
+            terms: {
+              type: "array",
+              items: { type: "string" },
+              description: "Task nouns; entries must contain every term",
+            },
+            limit: { type: "number", description: "Max entries (default 10; 0 = no cap)" },
+            rejected: { type: "boolean", description: "Only entries marked [✗], already tried and rejected" },
+          },
+          required: ["terms"],
+          additionalProperties: false,
+        },
+        options: { namespace: "contexto", codemode: true },
+        execute: async (input) => {
+          const { terms, limit = 10, rejected = false } = input as {
+            terms: string[]
+            limit?: number
+            rejected?: boolean
+          }
+          const out = await search(terms, limit, rejected)
+          return {
+            content: out
+              ? `Recorded context (may be stale; verify in the file):\n${out}`
+              : "no recorded entry matches",
+          }
+        },
+      })
+
+      editor.add({
+        name: "brief",
+        description:
+          "Return a paste-ready 'recorded context' block for a subagent brief, from task terms.",
+        input: {
+          type: "object",
+          properties: {
+            terms: { type: "array", items: { type: "string" } },
+            limit: { type: "number", description: "Max entries (default 10; 0 = no cap)" },
+            rejected: { type: "boolean", description: "Only entries marked [✗]" },
+          },
+          required: ["terms"],
+          additionalProperties: false,
+        },
+        options: { namespace: "contexto", codemode: true },
+        execute: async (input) => {
+          const { terms, limit = 10, rejected = false } = input as {
+            terms: string[]
+            limit?: number
+            rejected?: boolean
+          }
+          if (!runner) return { content: "contexto: scripts not found; use the skill's index.sh" }
+          const args = ["--dir", root, "--brief", "-n", String(limit)]
+          if (rejected) args.push("-x")
+          args.push(...terms)
+          const { stdout, stderr, code } = await runner.raw("index.sh", args)
+          const text = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n")
+          return { content: text || (code === 0 ? "Recorded context:\n- nothing recorded" : `contexto: index.sh exited ${code}`) }
+        },
+      })
+
+      editor.add({
+        name: "status",
+        description:
+          "One-line read-only health check of the project context: missing files, budgets, carriers and stale bundle/index.",
+        input: { type: "object", properties: {}, additionalProperties: false },
+        options: { namespace: "contexto", codemode: true },
+        execute: async () => {
+          if (!runner) return { content: "contexto: scripts not found; use the skill's init.sh --check" }
+          const res = await checkJson(["--dir", root, "--quiet"])
+          if (!res.ok) return { content: res.text || `check: failed (exit ${res.code})` }
+          const r = res.report
+          return {
+            content: r.ok
+              ? `check: ok — tier ${r.tier}${r.warnings > 0 ? ` (${r.warnings} warning${r.warnings === 1 ? "" : "s"})` : ""}`
+              : `check: ${r.problems} problem(s) — ${r.messages.filter((m) => m.kind === "problem").map((m) => m.text).join("; ") || "see contexto_check"}`,
+          }
+        },
+      })
+
+      editor.add({
+        name: "check",
+        description:
+          "Full read-only context report: missing files, budgets, markers, imports, carriers, stale bundle and code index. The text says which command fixes each problem.",
+        input: {
+          type: "object",
+          properties: {
+            tier: { type: "string", enum: ["1", "2", "3"], description: "Optional tier to check against" },
+          },
+          additionalProperties: false,
+        },
+        options: { namespace: "contexto", codemode: true },
+        execute: async (input) => {
+          if (!runner) return { content: "contexto: scripts not found; use the skill's init.sh --check" }
+          const { tier } = input as { tier?: string }
+          const args = ["--dir", root]
+          if (tier) args.push("--tier", tier)
+          const res = await checkJson(args)
+          if (!res.ok) return { content: res.text || `check: failed (exit ${res.code})` }
+          return { content: render(res.report) }
+        },
+      })
+    })
+
     const sessions = new Map<string, SessionState>()
     const state = (id: string): SessionState => {
       let s = sessions.get(id)
@@ -125,15 +321,20 @@ export default Plugin.define({
     await ctx.tool.hook("execute.before", (event) => {
       const input = (event.input ?? {}) as Record<string, unknown>
       const raw = input.path ?? input.filePath ?? input.file_path
-      if (typeof raw !== "string" || !raw || raw.startsWith("/") || raw.startsWith("..")) return
-      if (raw.startsWith(".claude/context/")) return
-      state(event.sessionID).pending.add(raw)
+      if (typeof raw !== "string" || !raw) return
+      // Windows tools report absolute paths too; accept one that lives inside the project.
+      const relative = raw.startsWith(root)
+        ? raw.slice(root.length).replace(/^[\\/]+/, "").replace(/\\/g, "/")
+        : raw
+      if (relative.startsWith("/") || relative.startsWith("..")) return
+      if (relative.startsWith(".claude/context/")) return
+      state(event.sessionID).pending.add(relative)
     })
 
     // Recall runs here, on the request that follows the tool call — the same shape as
     // Claude Code's PreToolUse, which also cannot inject mid-request. Budget warnings
     // queued by execute.after are delivered on the same request.
-    await ctx.session.hook("context", (event) => {
+    await ctx.session.hook("context", async (event) => {
       const s = state(event.sessionID)
 
       if (s.warn.length > 0) {
@@ -141,7 +342,7 @@ export default Plugin.define({
         s.warn.length = 0
       }
 
-      if (!canRecall || s.pending.size === 0) return
+      if (!runner || s.pending.size === 0) return
       const files = [...s.pending]
       s.pending.clear()
 
@@ -149,11 +350,11 @@ export default Plugin.define({
       for (const file of files) {
         if (s.recalled.has(file)) continue
         s.recalled.add(file)
-        let hits = recall(indexSh, root, file, 3)
+        let hits = await recall(file, 3)
         if (!hits) {
           const base = file.split("/").pop() ?? file
           if (GENERIC.test(base)) continue
-          hits = recall(indexSh, root, base, 3)
+          hits = await recall(base, 3)
         }
         if (hits) blocks.push(`- ${file}:\n${hits}`)
       }
@@ -174,20 +375,15 @@ export default Plugin.define({
     // After a compaction the summary may have dropped detail: ask for what is still
     // unwritten and hand back the memory table of contents. Recalled-file markers reset,
     // since the conversation that carried them is gone.
-    await ctx.session.hook("compaction", (event) => {
-      const toc = canRecall
-        ? (() => {
-            try {
-              return execFileSync(indexSh, ["--dir", root], {
-                encoding: "utf8",
-                timeout: 3000,
-                stdio: ["ignore", "pipe", "ignore"],
-              }).trim()
-            } catch {
-              return ""
-            }
-          })()
-        : ""
+    await ctx.session.hook("compaction", async (event) => {
+      let toc = ""
+      if (runner) {
+        try {
+          toc = (await runner.text("index.sh", ["--dir", root])).trim()
+        } catch {
+          toc = ""
+        }
+      }
       const parts = [
         COMPACTION_INSTRUCTION,
         "",
@@ -208,20 +404,27 @@ export default Plugin.define({
     await ctx.tool.hook("execute.after", (event) => {
       const input = (event.input ?? {}) as Record<string, unknown>
       const raw = input.path ?? input.filePath ?? input.file_path
-      if (typeof raw !== "string" || !raw.startsWith(".claude/context/")) return
-      if (raw.startsWith(".claude/context/memory/")) return
-      const name = raw.split("/").pop() ?? ""
+      if (typeof raw !== "string" || !raw) return
+      const relative = raw.startsWith(root)
+        ? raw.slice(root.length).replace(/^[\\/]+/, "").replace(/\\/g, "/")
+        : raw
+      if (!relative.startsWith(".claude/context/")) return
+      if (relative.startsWith(".claude/context/memory/")) return
+      const name = relative.split("/").pop() ?? ""
       const max = BUDGET[name]
       if (!max) return
-      const file = join(root, raw)
+      const file = join(root, ...relative.split("/"))
       if (!existsSync(file)) return
       const n = manualLines(file)
       if (n <= max) return
-      state(event.sessionID).warn.push(
+      const message =
         name === "LEARNINGS.md"
           ? `[contexto] ${name}: ${n} lines outside auto blocks, budget ${max}. Promote a whole tag to .claude/context/memory/<tag>.md and leave one pointer in 'Long-term memory' (nothing is deleted, [✗] lines stay); only then summarize or delete hot lines. Never trim inside <!-- auto:start --> blocks.`
-          : `[contexto] ${name}: ${n} lines outside auto blocks, budget ${max}. Summarize the manual part into 1 line or delete (git log keeps history). Never trim inside <!-- auto:start --> blocks.`,
-      )
+          : `[contexto] ${name}: ${n} lines outside auto blocks, budget ${max}. Summarize the manual part into 1 line or delete (git log keeps history). Never trim inside <!-- auto:start --> blocks.`
+      // Two edits to the same file in one turn must not queue the same warning twice.
+      const queued = state(event.sessionID).warn
+      if (queued.includes(message)) return
+      queued.push(message)
       console.warn(`[contexto] ${name}: ${n} lines outside auto blocks, budget ${max}`)
     })
   },

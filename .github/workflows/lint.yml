@@ -11,6 +11,21 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
       - name: Syntax
         run: bash -n scripts/init.sh && bash -n scripts/install.sh && bash -n scripts/index.sh && bash -n scripts/hook.sh && bash -n .githooks/pre-commit
+      - name: Launcher (Windows entry point, POSIX passthrough)
+        run: |
+          node --check scripts/win/ctx.mjs
+          L=/tmp/smoke-launcher; rm -rf $L
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $L >/dev/null
+          printf -- '- [2026-08-20] [net] [✓] heartbeat every 5 s\n' >> $L/.claude/context/LEARNINGS.md
+          # on POSIX the launcher execs the script itself: same stdout, same exit code
+          node scripts/win/ctx.mjs index.sh --dir $L heartbeat | grep -c 'LEARNINGS.md:.*heartbeat'
+          node scripts/win/ctx.mjs init.sh --check --dir $L
+          # a script's own failure becomes the launcher's exit code
+          test "$(node scripts/win/ctx.mjs index.sh --dir /tmp/nope >/dev/null 2>&1; echo $?)" = 1
+          test "$(node scripts/win/ctx.mjs missing.sh >/dev/null 2>&1; echo $?)" = 1
+          test "$(node scripts/win/ctx.mjs >/dev/null 2>&1; echo $?)" = 1
+          # Windows paths are translated only on Windows; on POSIX they are passed through
+          node -e 'const {execFileSync}=require("child_process"); const out=execFileSync(process.execPath,["scripts/win/ctx.mjs","--help"],{encoding:"utf8"}); if(!out.includes("WSL")) process.exit(1)'
       - name: ShellCheck
         run: shellcheck -S warning scripts/init.sh scripts/install.sh scripts/index.sh scripts/hook.sh .githooks/pre-commit
       - name: Executable bit
@@ -150,6 +165,93 @@ jobs:
           ( ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 || true ) | grep -c 'placeholder'
           ( ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 || true ) | grep -c 'budget 60'
           ! ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>/dev/null
+      - name: init.sh improvements (created/tier, noise, check warnings, dry-run)
+        run: |
+          # 1. created: names only on creation; tier change reported once, not per file.
+          D=/tmp/smoke-imp; rm -rf $D; mkdir -p $D
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $D >/dev/null
+          out="$(./scripts/init.sh --tier 2 --lang en --yes --dir $D)"
+          test "$(printf '%s\n' "$out" | grep -c '^created: ' || true)" = 0
+          out="$(./scripts/init.sh --tier 3 --lang en --yes --dir $D)"
+          test "$(printf '%s\n' "$out" | grep -c '^created: BUGS.md$' || true)" = 1
+          test "$(printf '%s\n' "$out" | grep -c '^tier: 2 → 3 (3 files)$' || true)" = 1
+          out="$(./scripts/init.sh --tier 3 --lang en --yes --dir $D)"
+          test "$(printf '%s\n' "$out" | grep -cE '^created: |^tier: ' || true)" = 0
+          # 2. backup noise never reaches the MAP top-level listing.
+          N=/tmp/smoke-noise; rm -rf $N; mkdir -p $N
+          : > $N/x.json.bak-20260101-000000; : > $N/y.orig; : > $N/z~
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $N >/dev/null
+          test "$(grep -c 'x.json.bak' $N/.claude/context/MAP.md || true)" = 0
+          test "$(grep -c 'y.orig' $N/.claude/context/MAP.md || true)" = 0
+          test "$(grep -c 'z~' $N/.claude/context/MAP.md || true)" = 0
+          # 3. --check sees a prose queue, an inactive TODO with items, and an empty active TODO.
+          A=/tmp/smoke-warn; rm -rf $A; mkdir -p $A
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $A >/dev/null
+          S=$A/.claude/context/STATUS.md
+          awk '{print} /^## Pending and blockers$/ {getline; print "- one"; print "- two"; print "- three"}' "$S" > "$S.new"
+          mv "$S.new" "$S"
+          out="$(./scripts/init.sh --check --tier 2 --lang en --dir $A 2>&1)"
+          test "$(printf '%s\n' "$out" | grep -c 'prose queue' || true)" = 1
+          test "$(printf '%s\n' "$out" | grep -c 'check: ok' || true)" = 1
+          B=/tmp/smoke-todo-off; rm -rf $B; mkdir -p $B
+          ./scripts/init.sh --tier 2 --lang en --yes --todo --dir $B >/dev/null
+          out="$(./scripts/init.sh --check --tier 2 --lang en --dir $B 2>&1 || true)"
+          test "$(printf '%s\n' "$out" | grep -c 'active: false but has open items' || true)" = 1
+          ! ./scripts/init.sh --check --tier 2 --lang en --dir $B 2>/dev/null
+          C=/tmp/smoke-todo-on; rm -rf $C; mkdir -p $C
+          ./scripts/init.sh --tier 2 --lang en --yes --todo --dir $C >/dev/null
+          sed -i '/^- \[ \]$/d' $C/.claude/context/TODO.md
+          sed -i 's/^active: false/active: true/' $C/.claude/context/TODO.md
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $C >/dev/null
+          out="$(./scripts/init.sh --check --tier 2 --lang en --dir $C 2>&1)"
+          test "$(printf '%s\n' "$out" | grep -c 'active: true but has no open items' || true)" = 1
+          test "$(printf '%s\n' "$out" | grep -c 'check: ok' || true)" = 1
+          # 4. paths cited in manual prose: warn-only for a dead link and a stale source.
+          P=/tmp/smoke-paths; rm -rf $P; mkdir -p $P/docs
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $P >/dev/null
+          echo 'see docs/missing.md' >> $P/.claude/context/MAP.md
+          echo 'state in .claude/context/STATUS.md' >> $P/.claude/context/MAP.md
+          out="$(./scripts/init.sh --check --tier 2 --lang en --dir $P 2>&1)"
+          test "$(printf '%s\n' "$out" | grep -c 'which does not exist' || true)" = 1
+          test "$(printf '%s\n' "$out" | grep -c 'cites claude/' || true)" = 0
+          test "$(printf '%s\n' "$out" | grep -c 'check: ok' || true)" = 1
+          : > $P/docs/old.md
+          touch -d '60 days ago' $P/docs/old.md
+          echo 'tracker: docs/old.md' >> $P/.claude/context/MAP.md
+          out="$(./scripts/init.sh --check --tier 2 --lang en --dir $P 2>&1)"
+          test "$(printf '%s\n' "$out" | grep -c 'not modified in 30' || true)" = 1
+          # 5. over-budget hint names the oldest dated lines and the tag to promote.
+          H=/tmp/smoke-hint; rm -rf $H; mkdir -p $H
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $H >/dev/null
+          M=$H/.claude/context/MAP.md
+          for i in $(seq 1 59); do echo "- filler $i" >> $M; done
+          printf -- '- 2020-01-01 oldest alpha\n- 2020-02-02 oldest beta\n- 2021-03-03 oldest gamma\n' >> $M
+          out="$(./scripts/init.sh --check --tier 2 --lang en --dir $H 2>&1 || true)"
+          test "$(printf '%s\n' "$out" | grep -c 'oldest alpha' || true)" = 1
+          test "$(printf '%s\n' "$out" | grep -c 'check: hint: MAP.md' || true)" = 1
+          K=/tmp/smoke-hint-l; rm -rf $K; mkdir -p $K
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $K >/dev/null
+          L=$K/.claude/context/LEARNINGS.md
+          for i in $(seq 1 100); do echo "- filler $i" >> $L; done
+          printf -- '- [2026-01-01] [net] [x] a\n- [2026-01-02] [net] [x] b\n- [2026-01-03] [net] [x] c\n' >> $L
+          out="$(./scripts/init.sh --check --tier 2 --lang en --dir $K 2>&1 || true)"
+          test "$(printf '%s\n' "$out" | grep -c "tag 'net' has 3 entries" || true)" = 1
+          # 6. --dry-run reports and writes nothing; --check and --dry-run are exclusive.
+          R=/tmp/smoke-dry; rm -rf $R; mkdir -p $R
+          out="$(./scripts/init.sh --dry-run --tier 2 --lang en --yes --todo --dir $R)"
+          test "$(printf '%s\n' "$out" | grep -c 'would create: TODO.md' || true)" = 1
+          test ! -e $R/.claude
+          test ! -e $R/CLAUDE.md
+          ! ./scripts/init.sh --dry-run --check --dir $R 2>/dev/null
+          ./scripts/init.sh --tier 2 --lang en --yes --dir $R >/dev/null
+          before="$(find "$R" -type f -printf '%p %T@ %s\n' | sort; find "$R" -type f -print0 | sort -z | xargs -0 cksum)"
+          ./scripts/init.sh --dry-run --tier 3 --lang en --yes --todo --dir $R >/dev/null
+          ./scripts/init.sh --dry-run --tier 2 --lang en --yes --dir $R >/dev/null
+          after="$(find "$R" -type f -printf '%p %T@ %s\n' | sort; find "$R" -type f -print0 | sort -z | xargs -0 cksum)"
+          test "$before" = "$after"
+          test ! -e $R/.claude/context/TODO.md
+          out="$(./scripts/init.sh --dry-run --tier 3 --lang en --yes --dir $R)"
+          test "$(printf '%s\n' "$out" | grep -c 'would update: MAP.md (tier 2 → 3)' || true)" = 1
       - name: opencode carrier (--opencode, JSONC, --check)
         run: |
           # opencode V2 ignores CLAUDE.md: the carrier is `instructions` or the AGENTS bundle.

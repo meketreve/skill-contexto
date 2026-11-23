@@ -6,10 +6,11 @@ description: Bootstrap lean project context in 3 tiers (MAP/STATUS/TODO/LEARNING
 
 <!-- Alias of context.md (same instructions, PT-BR name). Keep both files in sync. -->
 
-1. Run the zero-token scaffold (path of the installed skill; adjust if different):
+1. Run the zero-token scaffold (path of the installed skill; adjust if different). On Windows there is usually no `bash` on PATH: use the launcher, which runs the same script through WSL (or `CONTEXTO_BASH`), and translate the Windows paths you pass:
 ```bash
 ~/.config/opencode/skills/contexto/scripts/init.sh --tier auto $ARGUMENTS
 # claude code: ~/.claude/skills/contexto/scripts/init.sh --tier auto $ARGUMENTS
+# windows:     node "C:\Users\<you>\.config\opencode\skills\contexto\scripts\win\ctx.mjs" init.sh --tier auto $ARGUMENTS
 ```
 Accepts `--tier auto|1|2|3` to force the tier, `--dir DIR`, `--lang auto|pt|en`, `--yes` to never prompt (a tier 1–2 tie still resolves to 2; `--tier 1` or `CONTEXTO_ASSUME_MULTISESSAO=0` forces one-shot), `--todo` to create `TODO.md`, `--migrate` for old-format files, `--index` for the code index in `MAP.md`, `--bundle` to mirror the imported files into `AGENTS.md`, `--opencode` to write the same list into the `instructions` array of `opencode.json` (opencode V2 ignores `CLAUDE.md`), and `--check` for a read-only report that exits 1 on problems.
 
@@ -24,3 +25,7 @@ Accepts `--tier auto|1|2|3` to force the tier, `--dir DIR`, `--lang auto|pt|en`,
 4. Subagents: before spawning, `index.sh` the task's terms and paste the hits into the brief; afterwards read the final message and promote what holds (`reference/subagents.md`).
 
 5. Finish by listing what was created and what was left blank.
+
+## Uso contínuo (não bootstrap)
+
+Antes de delegar, rode `index.sh --brief TERM...` e cole o bloco no brief; na volta, confirme e promova os achados; no fechamento, `init.sh --check --quiet`. O contrato completo está em `reference/agent-integration.md`. No opencode, o plugin expõe `contexto_recall`, `contexto_brief`, `contexto_status` e `contexto_check`.

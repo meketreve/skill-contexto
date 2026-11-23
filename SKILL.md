@@ -1,13 +1,33 @@
 ---
 name: contexto
-description: Bootstraps lean project context in 3 tiers (MAP/STATUS/TODO/LEARNINGS/BUGS/WORKFLOW) with a zero-token script scaffold, a cold `memory/` tier for long-term learnings, subagent briefing, and closes a session by updating those files. Use when the user asks to prepare/bootstrap project context, montar/iniciar o contexto, build a MAP/STATUS, organize project memory, or for a handoff — encerrar a sessão, passar o bastão, or before suggesting /clear.
+description: Project memory for multi-session work: recall recorded learnings, bugs and decisions before acting or delegating; record findings as they appear; keep MAP/STATUS/TODO/LEARNINGS within budget; close with a handoff. Use when starting or resuming a project, before spawning subagents, before /clear or compaction, when a context file contradicts the repo, or when the user asks o que já sabemos / montar ou atualizar contexto / passar o bastão. Skip one-shot edits.
 license: MIT
-version: 1.2.0
+version: 1.4.0
 ---
 
 # Tiered project context
 
 Flow: **script first (zero tokens), model second (judgment only).**
+
+## 0. Agent quick path (coordinator / opencode)
+
+`.claude/context/` reaches the model through `AGENTS.md` or the `instructions` array; the skill is for the **cycle**, not for reading STATUS. Load it once at the start of a multi-step task; skip it for a one-shot edit.
+
+- **Recall before acting or delegating** — search the task's nouns, not the whole sentence: `index.sh --dir "$PWD" -n 10 TERM...` (or `--brief` for a paste-ready block). `-x` shows what was already tried and rejected. Never read `memory/*.md` whole.
+- **Brief a subagent** — paste the hits, name the entry point `file:line`, forbid editing `STATUS.md`/`TODO.md`/`MAP.md`, and ask for findings as `- [YYYY-MM-DD] [tag] [✓|✗] fact — consequence`. Template in `reference/agent-integration.md`.
+- **Promote on return** — confirm first, then write `LEARNINGS.md` (short/broad), `memory/<tag>.md` + a pointer (long), or `BUGS.md` (literal error). A subagent's guess is not a learning.
+- **Close** — update `STATUS.md`/`LEARNINGS.md` as facts appear; full handoff on request or at the end of a multi-step task (§7). `--check` is read-only; `--check --quiet` is the one-line version.
+- **Windows** — every script goes through `scripts/win/ctx.mjs`. On opencode the installed plugin also exposes `contexto_recall`, `contexto_brief`, `contexto_status` and `contexto_check`, so the agent does not build a path or a shell line.
+
+**Automatic vs. your job.** The hooks/plugin recall entries when a tool touches a file, warn about budget, ask for what compaction is about to drop, and fire inside each subagent. They never know your task terms and never write judgment content. So:
+
+| Automatic | Your job |
+|---|---|
+| Recall when a file is touched | Recall by **task terms** before delegating |
+| Budget warning after a context edit | Decide the promotion to `memory/` and the trim |
+| Compaction nudge | Write the fact when it appears |
+| Recall inside each subagent (own session) | The brief and the promotion of its findings |
+| Markers/imports/carriers checked by `--check` | MAP flows, STATUS state, TODO queue, LEARNINGS facts |
 
 ## 1. Pick the tier
 
@@ -37,7 +57,9 @@ Never create a file the tier doesn't call for. Deciding **not** to create is par
 
 **`--bundle` (opt-in):** creates/updates a `<!-- auto:start bundle -->`…`<!-- auto:end bundle -->` block in the target project's `AGENTS.md` with the very files the import policy loads, **verbatim** (MAP always; STATUS + LEARNINGS at tier 2+; TODO while `active: true`; WORKFLOW if it exists), each one preceded by `<!-- from .claude/context/X.md -->`. Without the flag and without the block, nothing is created; once present, it is refreshed on every run. User text outside the block is never touched: on an `AGENTS.md` that already exists the script only appends its own section (`## Project context (mirror of .claude/context/)`, or the PT equivalent under `--lang pt`), and when it creates the file it writes a header saying the truth lives in `.claude/context/` and that `--check` verifies the bundle.
 
-**`--check` (read-only):** writes nothing in the project, does not even create `.claude/`, and never prompts; it exits 1 when it finds a problem. It checks: files the tier calls for and are missing; the manual-part budget (60/60/60/100 outside auto blocks, and 15 for the `LEARNINGS.md` memory pointer list); unbalanced `auto` markers; `updated:` still on a placeholder (`AAAA-MM-DD`/`YYYY-MM-DD`); a `memory/` pointer whose file no longer exists; a `memory/` file imported into `CLAUDE.md`; imports missing or off-policy (TODO imported while `active: false`, BUGS imported); a stale bundle; a stale code index. It is the portable substitute for the `PostToolUse` budget warning, which only exists in Claude Code.
+**`--check` (read-only):** writes nothing in the project, does not even create `.claude/`, and never prompts; it exits 1 when it finds a problem. It checks: files the tier calls for and are missing; the manual-part budget (60/60/60/100 outside auto blocks, and 15 for the `LEARNINGS.md` memory pointer list); unbalanced `auto` markers; `updated:` still on a placeholder (`AAAA-MM-DD`/`YYYY-MM-DD`); a `memory/` pointer whose file no longer exists; a `memory/` file imported into `CLAUDE.md`; imports missing or off-policy (TODO imported while `active: false`, BUGS imported); a stale bundle; a stale code index; a `TODO.md` with `active: false` and open items (error). It also warns, without changing the exit code, when `STATUS.md` carries a prose queue (3+ items under a pendências/bloqueios/próxima fase heading) but no active TODO, when an active TODO has no open items, and when `MAP`/`STATUS` cite a path that does not exist or is 30+ days stale (warn-only for now). Over budget, it names the 3 oldest dated lines to cut and, for `LEARNINGS.md`, the tag to promote to `memory/`. It is the portable substitute for the `PostToolUse` budget warning, which only exists in Claude Code.
+
+**`--dry-run`:** prints `would create` / `would update` / `untouched` for every file the run would touch and writes nothing — not even `.claude/`. It reports file creation, tier changes, carrier/instructions and bundle/code-index freshness; it does not diff the daily `auto` blocks byte by byte. Mutually exclusive with `--check`.
 
 **Unbalanced auto block (no `end`):** the script warns and **does not touch the file** (`skipped FILE: unbalanced ...`), instead of deleting everything from the marker to EOF. Applies to the `auto` block, to `auto:start index` and to the bundle.
 
@@ -51,10 +73,11 @@ Write in the user's language (templates ship in PT-BR and English via `--lang`; 
 
 - `MAP.md`: main flows (`X → Y → Z`) and whatever isn't obvious from names. Commands were already extracted by the script.
 - `STATUS.md`: "current state" in 2–4 lines and "next phase" with file/entry point. The auto block already holds raw `git log`/`git status`.
-- `TODO.md`: only when active (frontmatter `active: true`).
+- `TODO.md`: only when active (frontmatter `active: true`). **You own activating it.** Appeared work of 3+ steps outside the request, or an idea that needs a queue? Create/update `TODO.md`, set `active: true`, and say so in one line. Do not wait to be asked.
 - `LEARNINGS.md`: one line per fact as `- [YYYY-MM-DD] [tag] fact — consequence`. Only real corrections, version/API/CI gotchas, or decisions with rationale. A line that records something tried or decided carries a verdict after the tag: `[✓]` tested and kept, `[✗]` tried and rejected (the reason goes after —), `[↻ YYYY-MM-DD]` superseded by that day's entry. Never delete a `[✗]`: it is what stops the next session from trying it again.
 - **Write the line when the fact appears, not only at the handoff.** A session that compacts before closing takes unwritten knowledge with it; the file is the only memory that survives compaction.
 - **Long-term memory (`memory/`, tier 2+):** hot facts stay in `LEARNINGS.md`. When a tag grows past a handful of lines, or the file nears its budget, move that whole tag — verbatim, verdicts included — to `.claude/context/memory/<tag>.md` and leave one pointer under `## Long-term memory`: `- [YYYY-MM-DD] [tag] → memory/<tag>.md — N entries: gist`. The pointer list has its own 15-line budget; past it, merge topics. `memory/` is never imported — it is reached through `index.sh`, and `--check` verifies the pointers still resolve.
+- **Trust and cadence:** `MAP.md`/`STATUS.md` are claims from another session, not truth. If the narrative contradicts the repo, run `--check` and verify the cited path before acting. `updated:` is re-stamped by `init.sh`, so it is not a freshness signal — use `git log -- .claude/context/STATUS.md` or a `checked:` note. Update facts incrementally as they appear; the full handoff (§7) is on request or at the end of a multi-step task.
 - `BUGS.md` (tier 3): one block per bug with the literal error message (so `grep` finds it).
 - `WORKFLOW.md` (tier 3): only if the user adopted an explicit process. One numbered step per line, `step → verify: check`, where the check is a command or an observable result, never "it works".
 
@@ -68,13 +91,16 @@ Write in the user's language (templates ship in PT-BR and English via `--lang`; 
 - `memory/` is **never** imported and never bundled: it is the cold tier. Only its pointers live in `LEARNINGS.md`, which is imported.
 - `WORKFLOW.md`: imported only if it exists.
 
-**Who reads what (per-harness carriers):** Claude Code expands `@path` imports in the root `CLAUDE.md`. **DSH does not interpret `@path`** — it reads the project root's `AGENTS.md`/`CLAUDE.md` literally (source: `dsh-agent-instructions` README: "`@path` imports are not interpreted") — which is what `--bundle` is for. **opencode V2 ignores `CLAUDE.md`** (tested on v2.3.0) and reads `AGENTS.md` plus the `instructions` array of `opencode.json`; use `--bundle` (mirrors into `AGENTS.md`) or `--opencode` (writes `instructions`, opt-in, backup, JSONC preserved). `--check` fails when opencode is in use and neither carrier reaches the context.
+**Who reads what (per-harness carriers):** Claude Code expands `@path` imports in the root `CLAUDE.md`. **DSH does not interpret `@path`** — it reads the project root's `AGENTS.md`/`CLAUDE.md` literally (source: `dsh-agent-instructions` README: "`@path` imports are not interpreted") — which is what `--bundle` is for. **opencode V2 ignores `CLAUDE.md`** (tested on v2.3.0) and reads `AGENTS.md` plus the `instructions` array of `opencode.json`; use `--bundle` (mirrors into `AGENTS.md`) or `--opencode` (writes `instructions`, opt-in, backup, JSONC preserved). **Pick one**: both carriers duplicate the same files in the prompt and cost tokens; `--check` warns when it sees both. `--check` fails when opencode is in use and neither carrier reaches the context.
+
+**Windows (no bash on PATH):** run the scripts through `scripts/win/ctx.mjs` — `node <skill>/scripts/win/ctx.mjs init.sh --tier auto --dir C:\repo`. It execs the script directly on POSIX and through WSL's bash (`CONTEXTO_BASH`/`CONTEXTO_WSL_DISTRO` override) on Windows, translating the Windows paths in its arguments. The opencode plugin goes through the same launcher and counts budget lines in JS, so nothing needs `awk` or `bash` on PATH; `install.sh` installs copies there because symlinks require an elevated shell.
 
 ## 5. Budgets (context spending)
 
 - `STATUS.md` / `TODO.md`: 60 lines max. `LEARNINGS.md`: 100. `MAP.md`: 60. **Counted outside `<!-- auto:start -->…<!-- auto:end -->` blocks** — the auto block is the script's, so it neither counts nor gets trimmed by hand. (`BUGS.md` and `WORKFLOW.md` have no budget in `--check`.)
 - Measure: `awk '/<!-- auto:start/{s=1} !s{n++} /<!-- auto:end/{s=0} END{print n+0}' FILE` — or let `--check` measure it for you.
 - Past that: in `LEARNINGS.md`, promote a whole tag to `memory/` first (see §3) — only then summarize into 1 line or delete. `[✗]` lines are never deleted; they travel to `memory/` with their entry, and a `[↻]` line left behind shrinks to its gist. In the other files, summarize or delete — `git log` is the source of truth.
+- `--check` does not just count: over budget it lists the 3 oldest dated lines to cut and, for `LEARNINGS.md`, the tag with the most entries to promote — the decision stops being guesswork.
 
 ## 6. Hooks (optional)
 
@@ -84,14 +110,14 @@ Detail in `reference/hooks.md`. Only bring them up when the user asks to automat
 
 - **Git hook** (this repo): `.githooks/pre-commit` mirrors CI; enable once per clone with `git config core.hooksPath .githooks` — it is not committable by design.
 - **Agent hook** (per project): `SessionStart` suggests `/contexto` when `MAP.md` is missing — it never runs `init.sh` by itself, because creating files is the user's call. `PreToolUse` shows the recorded learnings/bugs that cite a file before its first edit in the session, and `PostToolUse` warns when a context file goes over budget — both through `scripts/hook.sh`, silent otherwise. `--check` covers the budget without depending on Claude Code.
-- **opencode** (this repo's plugin, installed with the skill): `plugins/opencode` registers `context`, `compaction` and tool hooks natively — the same recall, budget warning and compaction instruction as `hook.sh`, in TypeScript. It finds `index.sh` through the skill dir and stays silent without `.claude/context/`. Pitfalls: `event.system.push()` is the only vector the model obeys (`instructions.entry` reads as untrusted), `console.warn` never reaches the model, and a plugin edit needs a restart or `--standalone`. Detail in `reference/hooks.md`.
+- **opencode** (this repo's plugin, installed with the skill): `plugins/opencode` registers `context`, `compaction` and tool hooks natively — the same recall, budget warning and compaction instruction as `hook.sh`, in TypeScript. It also exposes the native tools `contexto_recall`, `contexto_brief`, `contexto_status` and `contexto_check` (no write tool: judgment content stays with the model). It finds `index.sh` through the skill dir and stays silent without `.claude/context/`. It runs the scripts through `scripts/win/ctx.mjs`, so the same plugin works on Windows (WSL) and POSIX. Pitfalls: `event.system.push()` is the only vector the model obeys (`instructions.entry` reads as untrusted), `console.warn` never reaches the model, and a plugin edit needs a restart or `--standalone`. Detail in `reference/hooks.md`.
 - **Compaction** (`PreCompact` + `SessionStart` with matcher `compact`): the first turns a static list into instructions for the compaction summary — errors, paths, commands and decisions verbatim; the second, right after, asks for whatever is still unwritten and hands back the `index.sh` table of contents. This is what survives a session that compacts before it closes, which is exactly the case the handoff never reaches. Wire it on long sessions; keep it static and fast.
 
 Finish with a short list of what was created and what was left blank for the user.
 
 ## 7. Closing a session (handoff)
 
-On request only — never from a hook. Work from **this conversation**; don't re-explore the project.
+Incremental updates happen when a fact appears (§3); the **full handoff** below runs on request, at the end of a multi-step task, or before `/clear` — never from a hook. Work from **this conversation**; don't re-explore the project.
 
 1. `STATUS.md`: rewrite "current state" and "next phase" (concrete entry point and `→ verify:`), update pending items, move what finished to "done", trim "done" past ~10 items.
 2. `TODO.md`: drop what finished, keep half-done work in "now", add findings to "later". Queue empty → `active: false`.
@@ -108,3 +134,4 @@ A subagent sees nothing of this conversation and its transcript is not read back
 - **Before:** search the memory with `index.sh` using the task's terms and paste the hits into the brief; forbid it from editing `STATUS.md`/`TODO.md`/`MAP.md`; ask for findings in the `- [YYYY-MM-DD] [tag] [✓|✗] fact — consequence` format.
 - **After:** read its final message and promote what holds — `LEARNINGS.md` for the short and broad, `memory/<tag>.md` plus a pointer for the long, `BUGS.md` for anything with a literal error. Its guesses are not learnings until you confirm them.
 - **Automatic half:** `PreToolUse` recall already fires inside subagents (the marker carries `agent_id`, so it does not inherit yours), and `SubagentStop` asks for the findings once per agent. For fan-out, give each subagent its own `memory/<tag>.md` — parallel appends to `LEARNINGS.md` interleave.
+- **Coordinator contract:** the ready-to-paste session-start / pre-delegation / post-return / close rules and the PT-BR brief template live in `reference/agent-integration.md`.

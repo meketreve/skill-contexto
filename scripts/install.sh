@@ -20,6 +20,7 @@
 #   .claude/skills/contexto, .agents/skills/contexto, .opencode/skills/contexto,
 #   .opencode/commands/{context,contexto}.md, .opencode/plugins/contexto
 # --uninstall removes them again; with --project it only touches the project copies.
+# Windows (Git Bash/MSYS2/Cygwin): installs copies into %USERPROFILE% — no symlinks there.
 set -euo pipefail
 # A consumer that closes the pipe early (`| head`, `| grep -q`) used to kill the install
 # with SIGPIPE (exit 141). Ignore the signal; `say` swallows the resulting EPIPE errors.
@@ -34,6 +35,20 @@ FORCE=0
 ONLY="all"
 PROJECT=0
 UNINSTALL=0
+
+# Windows (Git Bash / MSYS2 / Cygwin): symlinks need an elevated shell, and the harnesses
+# read the Windows profile, not the MSYS home. Resolve that profile and default to copies.
+WINDOWS=0
+case "$(uname -s 2>/dev/null || echo unknown)" in
+  MINGW*|MSYS*|CYGWIN*) WINDOWS=1 ;;
+esac
+if [ "$WINDOWS" = 1 ]; then
+  MODE="copy"
+  if [ -n "${USERPROFILE:-}" ] && [ -d "$USERPROFILE" ]; then
+    # C:\Users\me → /c/Users/me, the form every path below expects
+    HOME="$(cd "$USERPROFILE" && pwd)"
+  fi
+fi
 
 usage() {
   say "usage: install.sh [--only claude,opencode,agents] [--copy] [--force] [--project] [--uninstall] [--list]"
@@ -93,7 +108,13 @@ put_dir() { # src dst
   if [ -e "$dst" ] && [ "$FORCE" != "1" ]; then say "skip $dst (exists, use --force)"; return; fi
   rm -rf "$dst"
   mkdir -p "$(dirname "$dst")"
-  if [ "$MODE" = "copy" ]; then cp -r "$src" "$dst"; else ln -s "$src" "$dst"; fi
+  if [ "$MODE" = "copy" ]; then
+    cp -r "$src" "$dst"
+    # the launcher is what makes the scripts runnable on Windows; never ship the repo's .git
+    rm -rf "$dst/.git"
+  else
+    ln -s "$src" "$dst"
+  fi
   say "put  $dst ($MODE)"
 }
 
@@ -115,6 +136,7 @@ if [ "$ONLY" = "list" ]; then
   # version comes from the SKILL.md frontmatter; no line, no suffix
   VERSION="$(sed -n 's/^version:[[:space:]]*//p' "$REPO/SKILL.md" 2>/dev/null | head -n 1 || true)"
   say "repo: $REPO${VERSION:+ (v$VERSION)}"
+  say "platform: $(uname -s 2>/dev/null || echo unknown)$(if [ "$WINDOWS" = 1 ]; then echo ' — copies, no symlinks'; fi)"
   say "claude skill:    $HOME/.claude/skills/contexto — $(status_of "$HOME/.claude/skills/contexto")"
   say "agents skill:    $HOME/.agents/skills/contexto — $(status_of "$HOME/.agents/skills/contexto")"
   say "opencode skill:  $HOME/.config/opencode/skills/contexto — $(status_of "$HOME/.config/opencode/skills/contexto")"
@@ -151,6 +173,22 @@ if [ "$PROJECT" = "1" ]; then
   fi
   MODE="$MODE_SAVED"
   say "project install done (copies — commit them)"
+  exit 0
+fi
+
+if [ "$WINDOWS" = 1 ]; then
+  # opencode on Windows reads %USERPROFILE%\.config\opencode, and the bash scripts are run
+  # through scripts/win/ctx.mjs (WSL or CONTEXTO_BASH), so a copy is the honest install.
+  say "windows detected: installing copies into $HOME/.config/opencode (no symlinks)"
+  detected opencode && {
+    put_dir "$REPO" "$HOME/.config/opencode/skills/contexto"
+    put_file "$REPO/commands/context.md" "$HOME/.config/opencode/commands/context.md"
+    put_file "$REPO/commands/contexto.md" "$HOME/.config/opencode/commands/contexto.md"
+    put_dir "$REPO/plugins/opencode" "$HOME/.config/opencode/plugins/contexto"
+  } || skip_msg opencode
+  detected claude && put_dir "$REPO" "$HOME/.claude/skills/contexto" || skip_msg claude
+  detected agents && put_dir "$REPO" "$HOME/.agents/skills/contexto" || skip_msg agents
+  say "note: reload opencode (/reload) to load the skill, commands and plugin"
   exit 0
 fi
 

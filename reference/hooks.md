@@ -165,12 +165,20 @@ The events verified against v2.3.0, and what the plugin does with each:
 | `ctx.session.hook("compaction")` | same shape; `messages` is the transcript being summarized | pushes the instruction that forces literal errors/paths/commands/decisions into the summary, plus the `index.sh` table of contents |
 | `ctx.tool.hook("execute.before")` | `tool`, `input`, `sessionID`, `agent` | remembers the project-relative file the session touched |
 | `ctx.tool.hook("execute.after")` | the same + `status`, `result` | measures the manual part of a context file and queues the budget warning |
+| `ctx.tool.transform` | the tool editor | registers `contexto_recall`, `contexto_brief`, `contexto_status`, `contexto_check` — read-only, no write tool |
+
+The native tools exist because the hooks are path-driven: they recall what a tool already
+touched, which is too late when the coordinator delegates before opening any file. The tools
+let the agent search by **task terms** on purpose, and the `check`/`status` pair gives it the
+read-only hygiene without building a Windows/WSL command line.
 
 Rules that are not obvious until they bite:
 
 - **`event.system.push({ type: "text", text })` is the only injection vector the model
-  obeys.** `ctx.session.instructions.entry.put()` renders as a `<system-update>` block;
-  the model treats it as untrusted external content and refuses to act on it (tested).
+  obeys.** `ctx.session.instructions.entry.put()` renders as a `<context key="...">` block in
+  the session instructions (V2 docs; on v2.3.0 it rendered as `<system-update>` and the model
+  treated it as untrusted external content — retested when the docs changed). Prefer
+  `system.push`; if you need `instructions.entry`, verify the block shape first.
 - **`console.warn` in a plugin goes to the server log, never to the model.** Queue the
   warning and deliver it in the next `context` hook — `execute.after` measures, `context`
   speaks. (A `context` hook runs before a request, never mid-request, so the warning lands
@@ -184,7 +192,9 @@ Rules that are not obvious until they bite:
 - `event.result` on `compaction` replaces the summary entirely — leave it alone unless you
   intend to write the summary yourself.
 - The plugin never blocks and never writes context files; it only injects text, exactly like
-  `hook.sh` on the Claude side.
+  `hook.sh` on the Claude side. The native `contexto_*` tools are read-only by the same rule:
+  `recall` and `brief` call `index.sh`, `status` and `check` call `init.sh --check`. A tool
+  that wrote `LEARNINGS.md` would put machine text into judgment content.
 
 Install: `install.sh --only opencode` links `plugins/opencode` to
 `~/.config/opencode/plugins/contexto`; `--project` copies it to

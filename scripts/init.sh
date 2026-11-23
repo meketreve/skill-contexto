@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # init.sh — 3-tier context scaffold, zero tokens spent.
-# Usage: init.sh [--tier auto|1|2|3] [--dir PROJECT] [--lang auto|pt|en] [--yes] [--todo] [--migrate] [--index] [--bundle] [--opencode] [--check]
+# Usage: init.sh [--tier auto|1|2|3] [--dir PROJECT] [--lang auto|pt|en] [--yes] [--todo] [--migrate] [--index] [--bundle] [--opencode] [--check] [--quiet] [--json] [--dry-run]
 # Only creates missing files; never overwrites manual content.
 # <!-- auto:start --> … <!-- auto:end --> blocks belong to the script.
 set -euo pipefail
@@ -19,6 +19,9 @@ WANT_INDEX=0
 WANT_BUNDLE=0
 WANT_OPENCODE=0
 CHECK=0
+QUIET=0
+JSON=0
+DRY_RUN=0
 ASSUME_YES=0
 
 # Narration must never turn a finished scaffold into a failure. A consumer that closes
@@ -28,7 +31,7 @@ ASSUME_YES=0
 say() { echo "$@" 2>/dev/null || true; }
 
 usage() {
-  say "usage: init.sh [--tier auto|1|2|3] [--dir DIR] [--lang auto|pt|en] [--yes] [--todo] [--migrate] [--index] [--bundle] [--opencode] [--check]"
+  say "usage: init.sh [--tier auto|1|2|3] [--dir DIR] [--lang auto|pt|en] [--yes] [--todo] [--migrate] [--index] [--bundle] [--opencode] [--check] [--quiet] [--json] [--dry-run]"
   say "  --lang picks the template language (default: auto from \$LANG, pt* → pt, else en)"
   say "  --yes  never prompt (tier 1-2 tie: commits on 2+ days → 2; with no TTY the tie goes to 2,"
   say "         the multi-session default — force one-shot with --tier 1 or CONTEXTO_ASSUME_MULTISESSAO=0)"
@@ -43,6 +46,9 @@ usage() {
   say "           once added, every run refreshes it"
   say "  --check  read-only: report stale bundle, marker/import/budget problems and broken"
   say "           memory pointers; writes nothing, exits 1 when it finds something"
+  say "  --quiet  with --check: suppress the header and the success detail, one line on success"
+  say "  --json   with --check: one JSON object instead of prose (ok, tier, dir, problems, warnings, messages)"
+  say "  --dry-run print would create/would update/untouched for every file, without writing"
 }
 
 while [ $# -gt 0 ]; do
@@ -62,6 +68,9 @@ while [ $# -gt 0 ]; do
     --bundle) WANT_BUNDLE=1; shift ;;
     --opencode) WANT_OPENCODE=1; shift ;;
     --check) CHECK=1; shift ;;
+    --quiet) QUIET=1; shift ;;
+    --json) JSON=1; shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 1 ;;
   esac
@@ -77,6 +86,12 @@ case "$LANG_OPT" in
 esac
 # --check never prompts: on a tier 1-2 tie it reports against the multi-session tier.
 if [ "$CHECK" = 1 ]; then ASSUME_YES=1; fi
+if [ "$DRY_RUN" = 1 ] && [ "$CHECK" = 1 ]; then
+  echo "init.sh: --dry-run and --check are mutually exclusive" >&2
+  exit 1
+fi
+# --dry-run never prompts and never touches the project.
+if [ "$DRY_RUN" = 1 ]; then ASSUME_YES=1; fi
 
 resolve_lang() {
   case "$LANG_OPT" in
@@ -119,7 +134,7 @@ else
   L_BUNDLE_TITLE="Contexto do projeto (espelho de .claude/context/)"
 fi
 
-[ "$CHECK" = 1 ] || mkdir -p "$CTX"   # --check writes nothing, not even the directory
+[ "$CHECK" = 1 ] || [ "$DRY_RUN" = 1 ] || mkdir -p "$CTX"   # --check/--dry-run write nothing, not even the directory
 
 # The project's repo: DIR itself (or a worktree/subdir of one), else the only
 # repo one level down — a plain folder wrapping the real repo.
@@ -138,15 +153,26 @@ fi
 # Tool/agent/build dirs: hundreds of files that say nothing about project size.
 SKIP_DIRS=(.git _bmad .agent .claude .wolf node_modules build .cxx __pycache__ .venv)
 
+# Editor/script backups are noise: they would inflate the file count, the MAP
+# listing and the code index. Matched on the basename only.
+NOISE_RE='(^|/)[^/]*\.bak[^/]*$|(^|/)[^/]*\.orig$|(^|/)[^/]*~$'
+skip_noise() { # name
+  case "$1" in
+    *.bak*|*.orig|*~) return 0 ;;
+  esac
+  return 1
+}
+
 nfiles() {
   local re d
   local -a prune=()
   re="(^|/)($(IFS='|'; echo "${SKIP_DIRS[*]}" | sed 's/\./\\./g'))/"
   if [ "$GIT_ROOT" = "$DIR" ]; then
-    git -C "$DIR" ls-files 2>/dev/null | grep -cEv "$re" || true
+    git -C "$DIR" ls-files 2>/dev/null | grep -cEv "($re)|($NOISE_RE)" || true
   else
     for d in "${SKIP_DIRS[@]}"; do prune+=(-name "$d" -o); done
-    find "$DIR" \( "${prune[@]}" -false \) -prune -o -type f -print 2>/dev/null | wc -l
+    find "$DIR" \( "${prune[@]}" -false \) -prune -o -type f \
+      ! -name '*.bak*' ! -name '*.orig' ! -name '*~' -print 2>/dev/null | wc -l
   fi
 }
 
@@ -188,28 +214,55 @@ resolve_tier() {
   # No prompt available (agent/CI without a TTY, or --yes): default to the
   # multi-session tier. Quietly returning 1 used to drop STATUS/LEARNINGS on
   # projects that do span sessions — the case this skill exists for.
-  echo "no TTY: tier 1-2 tie resolved to 2 (multi-session default); force one-shot with --tier 1 or CONTEXTO_ASSUME_MULTISESSAO=0" >&2
+  [ "$QUIET" = 1 ] || echo "no TTY: tier 1-2 tie resolved to 2 (multi-session default); force one-shot with --tier 1 or CONTEXTO_ASSUME_MULTISESSAO=0" >&2
   echo 2
 }
 
 TIER_N="$(resolve_tier)"
-say "tier=$TIER_N lang=$LANG_N dir=$DIR"
+[ "$QUIET" = 1 ] || [ "$JSON" = 1 ] || say "tier=$TIER_N lang=$LANG_N dir=$DIR"
 
 copy_missing() { # src dst
-  [ -f "$2" ] || cp "$1" "$2"
+  if [ -f "$2" ]; then return 0; fi
+  cp "$1" "$2"
+  say "created: ${2##*/}"
+}
+
+# Tier changes are accumulated instead of printed per file: six lines saying
+# "tier: 2 → 3" hide the one thing that changed. Pairs are kept separately, so
+# a mixed run still prints one line per pair.
+TIER_FROM=""
+TIER_TO=""
+TIER_COUNT=0
+flush_tier() {
+  [ -n "$TIER_FROM" ] || return 0
+  [ "$QUIET" = 1 ] || say "tier: $TIER_FROM → $TIER_TO ($TIER_COUNT files)"
+  TIER_FROM=""
+  TIER_TO=""
+  TIER_COUNT=0
 }
 
 # Never touches `active:` — a re-run must not deactivate an ongoing TODO.
 # Fresh TODO.md copies already ship with `active: false` from the template.
 # No `sed -i` here: BSD/macOS sed takes the script as the backup suffix and aborts.
 stamp_frontmatter() { # file tier
-  local f="$1" t="$2" tmp
+  local f="$1" t="$2" tmp old
+  old="$(awk '/^tier: / { print substr($0, 7); exit }' "$f")"
   tmp="$(mktemp "${TMPDIR:-/tmp}/init.XXXXXX")"
   if ! sed -e "s/^updated: .*/updated: $TODAY/" -e "s/^tier: .*/tier: $t/" "$f" > "$tmp"; then
     rm -f "$tmp"; return 1
   fi
   cat "$tmp" > "$f"   # writing through the existing file keeps its permissions
   rm -f "$tmp"
+  if [ -n "$old" ] && [ "$old" != "$t" ]; then
+    if [ "$TIER_FROM" = "$old" ] && [ "$TIER_TO" = "$t" ]; then
+      TIER_COUNT=$((TIER_COUNT + 1))
+    else
+      flush_tier
+      TIER_FROM="$old"
+      TIER_TO="$t"
+      TIER_COUNT=1
+    fi
+  fi
 }
 
 # Old format (no frontmatter, or no auto block where the template has one):
@@ -368,6 +421,7 @@ cmake_cmds() { # fills build/test_all/lint of the caller (map_cmd_block)
 # Output-dir names only count for directories with no tracked files, so
 # source like build-aux/ or buildspec.json still shows up.
 skip_top() { # name
+  skip_noise "$1" && return 0
   case "$1" in
     .git|.claude|__pycache__|node_modules|.venv) return 0 ;;
     build*|out|dist|target)
@@ -722,10 +776,11 @@ src_files() {
   re="(^|/)($(IFS='|'; echo "${SKIP_DIRS[*]}" | sed 's/\./\\./g')|dist|target|vendor)/"
   if [ "$IN_GIT_IDX" = 1 ]; then
     # tracked + new files not committed yet (never git-ignored ones)
-    git -C "$DIR" ls-files --cached --others --exclude-standard 2>/dev/null | grep -Ev "$re" || true
+    git -C "$DIR" ls-files --cached --others --exclude-standard 2>/dev/null | grep -Ev "($re)|($NOISE_RE)" || true
   else
     for d in "${SKIP_DIRS[@]}" dist target vendor; do prune+=(-name "$d" -o); done
-    (cd "$DIR" && find . \( "${prune[@]}" -false \) -prune -o -type f -print 2>/dev/null | sed 's|^\./||')
+    (cd "$DIR" && find . \( "${prune[@]}" -false \) -prune -o -type f \
+      ! -name '*.bak*' ! -name '*.orig' ! -name '*~' -print 2>/dev/null | sed 's|^\./||')
   fi
 }
 
@@ -896,11 +951,212 @@ ensure_claude_imports() { # tier
 
 # --- --check: read-only report; writes nothing, exits 1 when it finds something ---
 CHECK_BAD=0
-check_fail() { echo "check: $*" >&2; CHECK_BAD=$((CHECK_BAD + 1)); }
+CHECK_WARN=0
+CHECK_MSGS=()   # "<kind>\t<text>", kept only for --json
+json_esc() { sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+emit_check() { # kind(problem|warn|hint|note) text
+  local prefix="check: "
+  case "$1" in
+    warn) prefix="check: warn: " ;;
+    hint) prefix="check: hint: " ;;
+    note) prefix="check: note: " ;;
+  esac
+  if [ "$JSON" = 1 ]; then
+    CHECK_MSGS+=("$1"$'\t'"$2")
+  else
+    echo "$prefix$2" >&2
+  fi
+}
+check_fail() { CHECK_BAD=$((CHECK_BAD + 1)); emit_check problem "$*"; }
+check_warn() { CHECK_WARN=$((CHECK_WARN + 1)); emit_check warn "$*"; }
+check_hint() { emit_check hint "$*"; }
+check_note() { emit_check note "$*"; }
+
+# Oldest manual lines by the date written in the text (ISO AAAA-MM-DD, or DD/MM
+# keyed as 0000-MM-DD so it never competes with ISO). Only used to suggest a cut.
+oldest_lines() { # file
+  LC_ALL=C awk '
+    NR == 1 && $0 == "---" { fm = 1; next }
+    fm && $0 == "---" { fm = 0; next }
+    fm { next }
+    /<!-- auto:start/ { s = 1 }
+    /<!-- auto:end/ { s = 0; next }
+    s { next }
+    {
+      line = $0; key = ""
+      if (match(line, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) key = substr(line, RSTART, RLENGTH)
+      else if (match(line, /[0-9][0-9]\/[0-9][0-9]/)) {
+        d = substr(line, RSTART, RLENGTH)
+        key = "0000-" substr(d, 4, 2) "-" substr(d, 1, 2)
+      }
+      if (key == "") next
+      n++; k[n] = key; l[n] = line
+    }
+    END {
+      for (i = 1; i <= n; i++)
+        for (j = i + 1; j <= n; j++)
+          if (k[j] < k[i]) {
+            t = k[i]; k[i] = k[j]; k[j] = t
+            t = l[i]; l[i] = l[j]; l[j] = t
+          }
+      m = n < 3 ? n : 3
+      for (i = 1; i <= m; i++) {
+        line = l[i]
+        if (length(line) > 100) line = substr(line, 1, 100)
+        if (i > 1) printf " | "
+        printf "%s", line
+      }
+      if (m > 0) printf "\n"
+    }' "$1"
+}
+
+budget_hint() { # base file
+  local base="$1" f="$2" oldest max tag tab
+  tab="$(printf '\t')"
+  case "$base" in
+    MAP.md|STATUS.md|TODO.md)
+      oldest="$(oldest_lines "$f")"
+      [ -n "$oldest" ] || oldest="(no dated lines)"
+      check_hint "$base is over budget — oldest lines to cut: $oldest"
+      ;;
+    LEARNINGS.md)
+      max="$(LC_ALL=C awk '
+        NR == 1 && $0 == "---" { fm = 1; next }
+        fm && $0 == "---" { fm = 0; next }
+        fm { next }
+        /<!-- auto:start/ { s = 1 }
+        /<!-- auto:end/ { s = 0; next }
+        s { next }
+        match($0, /^- \[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] \[/) {
+          t = substr($0, RSTART + RLENGTH); sub(/\].*/, "", t); c[t]++
+        }
+        END {
+          best = ""; b = 0
+          for (t in c) if (c[t] > b) { b = c[t]; best = t }
+          if (b >= 3) printf "%d\t%s\n", b, best
+        }' "$f")"
+      if [ -n "$max" ]; then
+        tag="${max#*"$tab"}"
+        max="${max%%"$tab"*}"
+        check_hint "LEARNINGS.md: tag '$tag' has $max entries — promote it to .claude/context/memory/$tag.md and leave one pointer"
+      fi
+      ;;
+  esac
+}
+
+# Warn-only, first version: a path cited in manual prose may be an example, so a
+# dead link is reported but never changes the exit code.
+check_prose_paths() { # file
+  local file="$1" base="${1##*/}" path line target
+  local seen=" |" stale_seen=" |"
+  [ -f "$file" ] || return 0
+  while IFS=$'\t' read -r path line; do
+    [ -n "$path" ] || continue
+    path="${path#./}"
+    case "$path" in
+      /*|~*|memory/*|*/memory/*|node_modules/*|.git/*) continue ;;
+    esac
+    # A context file is often cited by basename ("BUGS.md"); resolve it under
+    # .claude/context/ before calling it a dead link.
+    target="$DIR/$path"
+    case "$path" in
+      MAP.md|STATUS.md|TODO.md|LEARNINGS.md|BUGS.md|WORKFLOW.md)
+        if [ ! -e "$target" ] && [ -e "$CTX/$path" ]; then target="$CTX/$path"; fi ;;
+    esac
+    case "$seen" in
+      *"|$path|"*) ;;
+      *)
+        seen="$seen$path|"
+        [ -e "$target" ] || check_warn "$base cites $path, which does not exist — stale link?"
+        ;;
+    esac
+    [ -e "$target" ] || continue
+    case "$stale_seen" in *"|$path|"*) continue ;; esac
+    if [ -n "$(find "$target" -mtime +30 -print -quit 2>/dev/null)" ]; then
+      case "$line" in
+        *fonte*|*tracker*|*atual*|*doc*|*source*|*current*)
+          stale_seen="$stale_seen$path|"
+          check_warn "$base cites $path, not modified in 30+ days — still the source?"
+          ;;
+      esac
+    fi
+  done < <(LC_ALL=C awk '
+    NR == 1 && $0 == "---" { fm = 1; next }
+    fm && $0 == "---" { fm = 0; next }
+    fm { next }
+    /<!-- auto:start/ { s = 1 }
+    /<!-- auto:end/ { s = 0; next }
+    s { next }
+    {
+      line = $0
+      gsub(/(https?|ftp):\/\/[^[:space:]]+/, " ", line)
+      while (match(line, /(\.\/)?[~\/]?[A-Za-z0-9_.][A-Za-z0-9_.\/-]*\.(md|py|sh|jsonl|jsonc|json|ts|tsx|js|mjs|yml|yaml|toml|txt)/)) {
+        m = substr(line, RSTART, RLENGTH)
+        before = (RSTART > 1) ? substr(line, RSTART - 1, 1) : ""
+        after = substr(line, RSTART + RLENGTH, 1)
+        # Exact token only: "metricas.json" must not match inside "metricas.jsonl".
+        if (before !~ /[A-Za-z0-9_.\/-]/ && after !~ /[A-Za-z0-9_.\/-]/) print m "\t" $0
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }' "$file")
+}
+
+# A prose queue in STATUS with no active TODO is a queue nobody reads; an
+# inactive TODO with open items is worse (nobody will ever see them).
+check_todo_queue() { # tier
+  local t="$1" prose=0 open=0 active=0
+  if [ -f "$CTX/STATUS.md" ]; then
+    prose="$(LC_ALL=C awk '
+      NR == 1 && $0 == "---" { fm = 1; next }
+      fm && $0 == "---" { fm = 0; next }
+      fm { next }
+      /<!-- auto:start/ { s = 1 }
+      /<!-- auto:end/ { s = 0; next }
+      s { next }
+      /^## / { insec = ($0 ~ /(Pendências|Bloqueios|Próxima fase|Pending|Blockers|Next phase)/); next }
+      insec && /^[-*] / {
+        item = $0; sub(/^[-*] /, "", item); gsub(/^[ \t]+|[ \t]+$/, "", item)
+        if (item != "" && item != "-" && item != "*") n++
+      }
+      END { print n + 0 }' "$CTX/STATUS.md")"
+  fi
+  if [ -f "$CTX/TODO.md" ]; then
+    grep -qE '^active:[[:space:]]*true' "$CTX/TODO.md" && active=1
+    open="$(grep -cE '^- \[ \]' "$CTX/TODO.md" || true)"
+    open="${open:-0}"
+  fi
+  if [ "$prose" -ge 3 ] && { [ ! -f "$CTX/TODO.md" ] || [ "$active" != 1 ]; }; then
+    check_warn "STATUS.md has a prose queue ($prose items) but no active TODO.md — create/activate TODO.md or move the queue there"
+  fi
+  if [ -f "$CTX/TODO.md" ]; then
+    if [ "$active" = 1 ] && [ "$open" -eq 0 ]; then
+      check_warn "TODO.md is active: true but has no open items (- [ ]) — set active: false"
+    elif [ "$active" != 1 ] && [ "$open" -gt 0 ]; then
+      check_fail "TODO.md is active: false but has open items — activate it or drop them"
+    fi
+  fi
+}
+
+# One JSON object for a consumer that must not parse prose (plugin tool, CI job).
+# Hand-rolled: the script cannot assume jq. `ok` mirrors the exit code.
+json_report() { # tier
+  local t="$1" first=1 item kind text
+  printf '{"ok":%s,"tier":"%s","dir":"%s","problems":%d,"warnings":%d,"messages":[' \
+    "$([ "$CHECK_BAD" = 0 ] && echo true || echo false)" \
+    "$(printf '%s' "$t" | json_esc)" "$(printf '%s' "$DIR" | json_esc)" \
+    "$CHECK_BAD" "$CHECK_WARN"
+  for item in ${CHECK_MSGS+"${CHECK_MSGS[@]}"}; do
+    kind="${item%%$'\t'*}"; text="${item#*$'\t'}"
+    [ "$first" = 1 ] || printf ','
+    first=0
+    printf '{"kind":"%s","text":"%s"}' "$kind" "$(printf '%s' "$text" | json_esc)"
+  done
+  printf ']}\n'
+}
 
 check_mode() { # tier
   local t="$1" f base max n np tgt claude="$DIR/CLAUDE.md" agents="$DIR/AGENTS.md" tmp
-  say "check: dir=$DIR tier=$t lang=$LANG_N"
+  [ "$QUIET" = 1 ] || [ "$JSON" = 1 ] || say "check: dir=$DIR tier=$t lang=$LANG_N"
   # 1. The files this tier calls for.
   while IFS= read -r f; do
     [ -f "$f" ] || check_fail "missing ${f##*/} — tier $t calls for it (run init.sh)"
@@ -923,10 +1179,18 @@ check_mode() { # tier
       && check_fail "$base: updated: is still the template placeholder"
     if [ "$max" -gt 0 ]; then
       n="$(awk '/<!-- auto:start/{s=1} !s{n++} /<!-- auto:end/{s=0} END{print n+0}' "$f")"
-      [ "$n" -le "$max" ] || check_fail "$base: $n lines outside auto blocks, budget $max — summarize into 1 line or delete"
+      if [ "$n" -gt "$max" ]; then
+        check_fail "$base: $n lines outside auto blocks, budget $max — summarize into 1 line or delete"
+        budget_hint "$base" "$f"
+      fi
     fi
   done
-  # 3. Long-term memory: every pointer resolves, the pointer list has its own budget, and
+  # 3. A prose queue without an active TODO, and paths cited in manual prose
+  #    (warn-only: an example path is not a defect).
+  check_todo_queue "$t"
+  check_prose_paths "$CTX/MAP.md"
+  check_prose_paths "$CTX/STATUS.md"
+  # 4. Long-term memory: every pointer resolves, the pointer list has its own budget, and
   #    the folder is never imported (recall is on demand, via index.sh).
   if [ -f "$CTX/LEARNINGS.md" ]; then
     np="$(grep -cE '^- \[[0-9]{4}-[0-9]{2}-[0-9]{2}\] \[[^]]*\] → memory/' "$CTX/LEARNINGS.md" || true)"
@@ -948,7 +1212,7 @@ check_mode() { # tier
       fi
     done
   fi
-  # 4. Imports against the policy.
+  # 5. Imports against the policy.
   if [ -f "$claude" ]; then
     while IFS= read -r f; do
       grep -qF "@${f#"$DIR"/}" "$claude" || check_fail "CLAUDE.md is missing the import @${f#"$DIR"/}"
@@ -959,7 +1223,7 @@ check_mode() { # tier
     grep -qF '@.claude/context/BUGS.md' "$claude" \
       && check_fail "CLAUDE.md imports BUGS.md, which is never imported (grep the error text instead)"
   fi
-  # 5. Bundle freshness — only when the block exists, since the bundle is opt-in.
+  # 6. Bundle freshness — only when the block exists, since the bundle is opt-in.
   if [ -f "$agents" ] && grep -qF "$BUNDLE_START" "$agents"; then
     if markers_balanced "$agents" "$BUNDLE_START" "$BUNDLE_END"; then
       tmp="$(mktemp "${TMPDIR:-/tmp}/init.XXXXXX")"
@@ -973,7 +1237,7 @@ check_mode() { # tier
       check_fail "AGENTS.md: unbalanced bundle block"
     fi
   fi
-  # 6. Index freshness — same idea: --check cannot regenerate it, but it can say whether
+  # 7. Index freshness — same idea: --check cannot regenerate it, but it can say whether
   # the block still matches what the code says today.
   if [ -f "$CTX/MAP.md" ] && grep -qF "$INDEX_START" "$CTX/MAP.md"; then
     tmp="$(mktemp "${TMPDIR:-/tmp}/init.XXXXXX")"
@@ -984,10 +1248,10 @@ check_mode() { # tier
     fi
     rm -f "$tmp"
   fi
-  # 7. opencode carrier: V2 ignores CLAUDE.md, so the imports above never reach it.
+  # 8. opencode carrier: V2 ignores CLAUDE.md, so the imports above never reach it.
   #    A project that shows opencode usage (config or .opencode/) is a hard failure;
   #    merely having the binary on PATH is a note, so CI and other harnesses stay green.
-  local oc_conf oc_rc oc_hard=0 oc_soft=0 oc_visible=0
+  local oc_conf oc_rc oc_hard=0 oc_soft=0 oc_visible=0 oc_instr=0 oc_bundle=0
   local -a oc_want=()
   if [ -f "$DIR/opencode.json" ] || [ -f "$DIR/opencode.jsonc" ] || [ -d "$DIR/.opencode" ]; then
     oc_hard=1
@@ -997,13 +1261,31 @@ check_mode() { # tier
   if [ "$oc_hard" = 1 ] || [ "$oc_soft" = 1 ]; then
     oc_conf="$(opencode_conf || true)"
     while IFS= read -r f; do oc_want+=("${f#"$DIR"/}"); done < <(wanted_sources "$t")
-    if [ -n "$oc_conf" ] && command -v python3 >/dev/null 2>&1; then
-      oc_rc=0
-      opencode_inspect "$oc_conf" "${oc_want[@]}" >/dev/null 2>&1 || oc_rc=$?
-      [ "$oc_rc" = 0 ] && oc_visible=1
+    if [ -n "$oc_conf" ]; then
+      if command -v python3 >/dev/null 2>&1; then
+        oc_rc=0
+        opencode_inspect "$oc_conf" "${oc_want[@]}" >/dev/null 2>&1 || oc_rc=$?
+        [ "$oc_rc" = 0 ] && { oc_instr=1; oc_visible=1; }
+      else
+        # No python3: --opencode writes each path as a quoted JSON string, so a
+        # literal grep is a safe fallback instead of a false "not visible".
+        oc_instr=1
+        for w in "${oc_want[@]}"; do
+          grep -qF "\"$w\"" "$oc_conf" || oc_instr=0
+        done
+        if [ "$oc_instr" = 1 ]; then
+          oc_visible=1
+        else
+          check_warn "opencode.json: cannot inspect instructions without python3 — verify them manually (or use --bundle)"
+        fi
+      fi
     fi
     if [ -f "$agents" ] && grep -qF "$BUNDLE_START" "$agents"; then
+      oc_bundle=1
       oc_visible=1
+    fi
+    if [ "$oc_instr" = 1 ] && [ "$oc_bundle" = 1 ]; then
+      check_warn "opencode carriers duplicate .claude/context (AGENTS.md bundle + opencode.json instructions) — pick one"
     fi
     if [ "$oc_visible" != 1 ]; then
       if [ "$oc_hard" = 1 ]; then
@@ -1013,24 +1295,136 @@ check_mode() { # tier
           check_fail "opencode will not see .claude/context (V2 ignores CLAUDE.md) — run init.sh --opencode or --bundle"
         fi
       else
-        echo "check: note: opencode is installed but nothing carries .claude/context to it (V2 ignores CLAUDE.md) — run init.sh --opencode or --bundle" >&2
+        check_note "opencode is installed but nothing carries .claude/context to it (V2 ignores CLAUDE.md) — run init.sh --opencode or --bundle"
       fi
     fi
   fi
   if [ "$t" -lt 2 ] && [ -f "$CTX/STATUS.md" ]; then
-    echo "check: note: STATUS.md exists but the detected tier is $t — pass --tier 2 to manage it" >&2
+    check_note "STATUS.md exists but the detected tier is $t — pass --tier 2 to manage it"
+  fi
+  if [ "$JSON" = 1 ]; then
+    json_report "$t"
+    [ "$CHECK_BAD" = 0 ]
+    return
   fi
   if [ "$CHECK_BAD" = 0 ]; then
-    say "check: ok — nothing missing, stale, over budget or off-policy"
+    if [ "$QUIET" = 1 ]; then
+      if [ "$CHECK_WARN" -gt 0 ]; then say "check: ok ($CHECK_WARN warnings)"; else say "check: ok"; fi
+    elif [ "$CHECK_WARN" -gt 0 ]; then
+      if [ "$CHECK_WARN" = 1 ]; then
+        say "check: ok — nothing missing, stale, over budget or off-policy (1 warning)"
+      else
+        say "check: ok — nothing missing, stale, over budget or off-policy ($CHECK_WARN warnings)"
+      fi
+    else
+      say "check: ok — nothing missing, stale, over budget or off-policy"
+    fi
     return 0
   fi
   echo "check: $CHECK_BAD problem(s) — nothing was written" >&2
   return 1
 }
 
+# --- --dry-run: same decisions as the scaffold, zero writes ---
+dry_file() { # file tier
+  local f="$1" t="$2" b old
+  b="${f##*/}"
+  if [ ! -f "$f" ]; then
+    say "would create: $b"
+    return 0
+  fi
+  old="$(awk '/^tier: / { print substr($0, 7); exit }' "$f")"
+  if [ -n "$old" ] && [ "$old" != "$t" ]; then
+    say "would update: $b (tier $old → $t)"
+  else
+    say "untouched: $b"
+  fi
+}
+
+dry_run_plan() { # tier
+  local t="$1" f conf b tmp rc agents="$DIR/AGENTS.md" map="$CTX/MAP.md"
+  local -a args=()
+  say "dry-run: dir=$DIR tier=$t lang=$LANG_N"
+  while IFS= read -r f; do
+    dry_file "$f" "$t"
+  done < <(wanted_sources "$t")
+  if [ "$t" -ge 2 ] && [ "$WANT_TODO" = 1 ] \
+     && ! { [ -f "$CTX/TODO.md" ] && grep -qE '^active:[[:space:]]*true' "$CTX/TODO.md"; }; then
+    dry_file "$CTX/TODO.md" "$t"
+  fi
+  if [ "$t" -ge 3 ]; then
+    dry_file "$CTX/BUGS.md" "$t"   # WORKFLOW.md is never created blank
+  fi
+
+  # opencode carrier: same inspection the --check uses.
+  if [ "$WANT_OPENCODE" = 1 ] || opencode_opted_in; then
+    conf="$(opencode_conf || true)"
+    if [ -z "$conf" ]; then
+      say "would create: opencode.json (instructions)"
+    elif command -v python3 >/dev/null 2>&1; then
+      args=()
+      while IFS= read -r f; do args+=("${f#"$DIR"/}"); done < <(wanted_sources "$t")
+      rc=0
+      opencode_inspect "$conf" "${args[@]}" >/dev/null 2>&1 || rc=$?
+      b="${conf##*/}"
+      if [ "$rc" = 0 ]; then
+        say "untouched: $b"
+      else
+        say "would update: $b (instructions)"
+      fi
+    else
+      say "would update: ${conf##*/} (instructions)"
+    fi
+  fi
+
+  # Bundle: only when opted in or the block already exists, like fill_bundle.
+  if [ "$WANT_BUNDLE" = 1 ] || { [ -f "$agents" ] && grep -qF "$BUNDLE_START" "$agents"; }; then
+    if [ ! -f "$agents" ]; then
+      say "would create: AGENTS.md (bundle)"
+    elif ! grep -qF "$BUNDLE_START" "$agents" \
+       || ! markers_balanced "$agents" "$BUNDLE_START" "$BUNDLE_END"; then
+      say "would update: AGENTS.md (bundle)"
+    else
+      tmp="$(mktemp "${TMPDIR:-/tmp}/init.XXXXXX")"
+      bundle_body "$t" > "$tmp"
+      if awk -v s="$BUNDLE_START" -v e="$BUNDLE_END" \
+        'index($0, s) { p = 1; next } index($0, e) { p = 0; next } p' "$agents" \
+        | diff -q - "$tmp" >/dev/null 2>&1; then
+        say "untouched: AGENTS.md"
+      else
+        say "would update: AGENTS.md (bundle)"
+      fi
+      rm -f "$tmp"
+    fi
+  fi
+
+  # Code index: same comparison as --check.
+  if [ "$WANT_INDEX" = 1 ] || { [ -f "$map" ] && grep -qF "$INDEX_START" "$map"; }; then
+    if [ ! -f "$map" ] || ! grep -qF "$INDEX_START" "$map" \
+       || ! markers_balanced "$map" "$INDEX_START" "$INDEX_END"; then
+      say "would update: MAP.md (code index)"
+    else
+      tmp="$(mktemp "${TMPDIR:-/tmp}/init.XXXXXX")"
+      index_block > "$tmp"
+      if awk -v s="$INDEX_START" -v e="$INDEX_END" \
+        'index($0, s) { p = 1; next } index($0, e) { p = 0; next } p' "$map" \
+        | diff -q - "$tmp" >/dev/null 2>&1; then
+        say "untouched: MAP.md (code index)"
+      else
+        say "would update: MAP.md (code index)"
+      fi
+      rm -f "$tmp"
+    fi
+  fi
+}
+
 # --- files per tier ---
 if [ "$CHECK" = 1 ]; then
   check_mode "$TIER_N" || exit 1
+  exit 0
+fi
+if [ "$DRY_RUN" = 1 ]; then
+  dry_run_plan "$TIER_N"
   exit 0
 fi
 
@@ -1074,6 +1468,7 @@ ensure_claude_imports "$TIER_N"
 fill_bundle "$TIER_N"
 fill_opencode "$TIER_N"
 
+flush_tier
 say "---"
 say "created/verified in $CTX:"
 ls "$CTX" 2>/dev/null || true

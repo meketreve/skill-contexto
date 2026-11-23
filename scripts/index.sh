@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # index.sh — compact, on-demand index of what the project learned (zero tokens to build).
-# Usage: index.sh [--dir PROJECT] [-x] [-n N] [-l] [TERM...]
+# Usage: index.sh [--dir PROJECT] [-x] [-n N] [-l] [--brief] [TERM...]
 #   no args   table of contents: entries per file and per section, with verdict counts
 #   TERM...   entries whose WHOLE text (all its lines) contains every term, one line each,
 #             newest first — grep finds lines, this finds entries
 #   -x        only entries marked [✗] (tried and rejected)
 #   -l        list every entry (same as a search that matches all)
 #   -n N      cap the listing (default 20; 0 = no cap)
+#   --brief   wrap the results in a paste-ready block for a subagent brief
 # Reads .claude/context/LEARNINGS*.md, BUGS*.md and memory/*.md — the long-term memory
 # the import policy leaves out on purpose. Never writes anything: printed fresh on every
 # call, so it can't go stale the way a saved index does.
@@ -20,6 +21,7 @@ export LC_ALL=C
 DIR="."
 REJ=0
 ALL=0
+BRIEF=0
 CAP=20
 TERMS=""
 
@@ -28,11 +30,17 @@ while [ $# -gt 0 ]; do
     --dir) DIR="${2:-.}"; shift 2 ;;
     -x) REJ=1; shift ;;
     -l) ALL=1; shift ;;
+    --brief) BRIEF=1; shift ;;
     -n) CAP="${2:-20}"; shift 2 ;;
-    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) TERMS="$TERMS${TERMS:+ }$1"; shift ;;
   esac
 done
+
+if [ "$BRIEF" = 1 ] && [ -z "$TERMS" ] && [ "$REJ" != 1 ] && [ "$ALL" != 1 ]; then
+  echo "index.sh: --brief needs at least one TERM (or -x/-l)" >&2
+  exit 1
+fi
 
 CTX="$DIR/.claude/context"
 shopt -s nullglob
@@ -44,7 +52,7 @@ if [ "${#FILES[@]}" -eq 0 ]; then
 fi
 
 MODE="toc"
-{ [ -n "$TERMS" ] || [ "$REJ" = 1 ] || [ "$ALL" = 1 ]; } && MODE="list"
+{ [ -n "$TERMS" ] || [ "$REJ" = 1 ] || [ "$ALL" = 1 ] || [ "$BRIEF" = 1 ]; } && MODE="list"
 
 # One record per entry: date \t file:line \t section \t verdict \t summary \t text
 entries() {
@@ -133,23 +141,38 @@ if [ "$MODE" = "toc" ]; then
   exit 0
 fi
 
-entries | awk -F '\t' -v terms="$TERMS" -v rej="$REJ" '
-  BEGIN { n = split(tolower(terms), t, " ") }
-  rej == 1 && $4 != "✗" { next }
-  { for (i = 1; i <= n; i++) if (!index($6, t[i])) next
-    print }
-' | sort -t "$(printf '\t')" -k1,1r -s | awk -F '\t' -v cap="$CAP" '
-  function cut(s, w) {
-    if (length(s) <= w) return s
-    # byte-based awk: back off so a multi-byte character is never split
-    while (w > 0 && substr(s, w + 1, 1) ~ /^[\200-\277]/) w--
-    return substr(s, 1, w) "…"
-  }
-  { total++
-    if (cap > 0 && total > cap) next
-    d = ($1 == "0000-00-00" ? "          " : $1)
-    printf "%-26s %s  %s\n", $2, d, cut($5, 110) }
-  END {
-    if (total == 0) print "no entry matches"
-    else if (cap > 0 && total > cap) print "… +" (total - cap) " more (-n 0 shows all)"
-  }'
+list_entries() {
+  entries | awk -F '\t' -v terms="$TERMS" -v rej="$REJ" '
+    BEGIN { n = split(tolower(terms), t, " ") }
+    rej == 1 && $4 != "✗" { next }
+    { for (i = 1; i <= n; i++) if (!index($6, t[i])) next
+      print }
+  ' | sort -t "$(printf '\t')" -k1,1r -s | awk -F '\t' -v cap="$CAP" '
+    function cut(s, w) {
+      if (length(s) <= w) return s
+      # byte-based awk: back off so a multi-byte character is never split
+      while (w > 0 && substr(s, w + 1, 1) ~ /^[\200-\277]/) w--
+      return substr(s, 1, w) "…"
+    }
+    { total++
+      if (cap > 0 && total > cap) next
+      d = ($1 == "0000-00-00" ? "          " : $1)
+      printf "%-26s %s  %s\n", $2, d, cut($5, 110) }
+    END {
+      if (total == 0) print "no entry matches"
+      else if (cap > 0 && total > cap) print "… +" (total - cap) " more (-n 0 shows all)"
+    }'
+}
+
+if [ "$BRIEF" = 1 ]; then
+  out="$(list_entries)"
+  echo "Recorded context (don't re-explore; it may be stale — verify in the file):"
+  if [ -z "$out" ] || [ "$out" = "no entry matches" ]; then
+    echo "- nothing recorded"
+  else
+    printf '%s\n' "$out" | sed 's/^/- /'
+  fi
+  exit 0
+fi
+
+list_entries
