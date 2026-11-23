@@ -1,6 +1,7 @@
 ---
 updated: AAAA-MM-DD
 tier: 1
+checked: AAAA-MM-DD
 ---
 
 # Mapa do projeto
@@ -20,3 +21,4 @@ tier: 1
 ## Pontos de entrada e fluxos principais
 
 <!-- ex.: requisição chega em X → passa por Y → grava em Z -->
+

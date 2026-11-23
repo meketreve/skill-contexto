@@ -1,7 +1,7 @@
 ---
 updated: AAAA-MM-DD
 tier: 3
----
+checked: AAAA-MM-DD\n---
 
 # Bugs resolvidos
 
@@ -14,3 +14,4 @@ tier: 3
 - **Sintoma (erro literal):**
 - **Causa:**
 - **Correção:** (arquivo, commit)
+

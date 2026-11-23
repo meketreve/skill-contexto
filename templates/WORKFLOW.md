@@ -16,3 +16,4 @@ adopted: AAAA-MM-DD
 ## Antes de commitar
 
 - [ ]
+

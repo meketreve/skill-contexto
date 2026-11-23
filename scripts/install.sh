@@ -208,6 +208,19 @@ if detected opencode; then
   put_file "$REPO/commands/contexto.md" "$HOME/.config/opencode/commands/contexto.md"
   put_dir "$REPO/plugins/opencode" "$HOME/.config/opencode/plugins/contexto"
   say "note: quit and restart opencode to load the skill, command and plugin"
+
+# CLI wrapper (optional, for PATH access)
+if [ -f "$REPO/scripts/contexto" ]; then
+  BIN_DIR="${CONTEXTO_BIN_DIR:-$HOME/.local/bin}"
+  mkdir -p "$BIN_DIR"
+  if [ "$MODE" = "copy" ]; then
+    cp "$REPO/scripts/contexto" "$BIN_DIR/contexto"
+  else
+    ln -sf "$REPO/scripts/contexto" "$BIN_DIR/contexto"
+  fi
+  say "put  $BIN_DIR/contexto ($MODE)"
+fi
+
 else
   skip_msg opencode
 fi

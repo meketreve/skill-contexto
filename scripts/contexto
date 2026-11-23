@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# contexto — unified CLI for the contexto skill (wrapper around init.sh/index.sh/hook.sh)
+# Install: copy to ~/.local/bin/ or /usr/local/bin/ (must be in PATH)
+# Usage: contexto <subcommand> [args...]
+#   init [--tier auto|1|2|3] [--dir DIR] [--lang auto|pt|en] [--yes] [--todo] [--migrate] [--index] [--bundle] [--opencode] [--check] [--quiet] [--json] [--dry-run]
+#   index [--dir DIR] [-x] [-l] [-n N] [--brief] [--json] [TERM...]
+#   hook <event> [--session-id ID] [--cwd DIR] [--file PATH]   # events: pretool, posttool, precompact, sessionstart, subagentstop
+#   promote --tag TAG --fact "..." --verdict ✓|✗|↻ [--note "..."] [--target learnings|memory|bugs]
+#   version
+set -euo pipefail
+
+SKILL_DIR="${CONTEXTO_SKILL_DIR:-$(dirname "$(realpath "$0")")/../skill-contexto}"
+SCRIPTS_DIR="$SKILL_DIR/scripts"
+LAUNCHER="$SKILL_DIR/scripts/win/ctx.mjs"
+
+run_script() {
+  local script="$1"; shift
+  if [ -x "$SCRIPTS_DIR/$script" ]; then
+    if [ -f "$LAUNCHER" ]; then
+      node "$LAUNCHER" "$script" "$@"
+    else
+      bash "$SCRIPTS_DIR/$script" "$@"
+    fi
+  else
+    echo "contexto: script not found: $script" >&2
+    exit 1
+  fi
+}
+
+usage() {
+  cat <<'EOF'
+contexto — project memory CLI (skill contexto wrapper)
+
+Usage: contexto <subcommand> [args...]
+
+Subcommands:
+  init       scaffold or check project context (see contexto init --help)
+  index      search recorded learnings/bugs/decisions (see contexto index --help)
+  hook       run a hook event (pretool, posttool, precompact, sessionstart, subagentstop)
+  promote    promote a verified finding to long-term memory
+  version    show version
+
+Environment:
+  CONTEXTO_DIR       context directory (default: .claude/context)
+  CONTEXTO_SKILL_DIR skill root directory (auto-detected from this script)
+
+Examples:
+  contexto init --tier 2 --lang en --yes
+  contexto init --check --quiet
+  contexto index mercado --brief
+  contexto index --json "src/net.ts" heartbeat
+  contexto promote --tag net --fact "heartbeat every 5s" --verdict "✓"
+EOF
+}
+
+version() {
+  if [ -f "$SKILL_DIR/SKILL.md" ]; then
+    awk -F': ' '/^version: / { print $2; exit }' "$SKILL_DIR/SKILL.md"
+  else
+    echo "unknown"
+  fi
+}
+
+case "${1:-}" in
+  init)
+    shift; run_script init.sh "$@"
+    ;;
+  index)
+    shift; run_script index.sh "$@"
+    ;;
+  hook)
+    shift; run_script hook.sh "$@"
+    ;;
+  promote)
+    shift
+    # promote is a native tool; if plugin not available, fall back to manual edit
+    if command -v opencode >/dev/null 2>&1; then
+      echo "contexto: promote is a native tool; use 'contexto_recall' etc. via opencode agent" >&2
+      exit 1
+    else
+      echo "contexto: promote requires the opencode plugin (native tool)" >&2
+      exit 1
+    fi
+    ;;
+  version|--version|-v)
+    version
+    ;;
+  ""|-h|--help)
+    usage
+    ;;
+  *)
+    echo "contexto: unknown subcommand: $1" >&2
+    usage
+    exit 1
+    ;;
+esac

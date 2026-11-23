@@ -1,7 +1,7 @@
 ---
 updated: AAAA-MM-DD
 tier: 2
----
+checked: AAAA-MM-DD\n---
 
 # Aprendizados
 
@@ -34,3 +34,4 @@ tier: 2
      Nada é apagado. A pasta não é importada: recupere com `index.sh <termo>` ou `index.sh -x`. -->
 
 - [AAAA-MM-DD] [tag] → memory/tag.md — N entradas: resumo do que tem lá
+

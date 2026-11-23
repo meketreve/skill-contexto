@@ -1,7 +1,7 @@
 ---
 updated: YYYY-MM-DD
 tier: 1
----
+checked: AAAA-MM-DD\n---
 
 # Project map
 
@@ -20,3 +20,4 @@ tier: 1
 ## Entry points and main flows
 
 <!-- e.g.: request arrives at X → goes through Y → writes to Z -->
+

@@ -11,8 +11,9 @@
  *   session "compaction" the summarizer's own request: ask for the artifacts a paraphrase eats.
  *   tool "execute.before" remembers which files the session touched.
  *   tool "execute.after"  budget warning for the context files.
- *   tools contexto_recall/brief/status/check: recall by task terms before delegating and a
- *                        cheap read-only health check; they never write judgment content.
+ *   tools contexto_recall/brief/status/check/promote: recall by task terms before delegating,
+ *                        read-only health check, and promote verified findings to long-term memory.
+ *                        They never write judgment content unprompted.
  *
  * Rules kept from hook.sh: it reminds, it never blocks, and it never writes judgment
  * content. Everything here is text injected into a request or a warning on stderr.
@@ -27,6 +28,7 @@
  */
 import { execFile } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
+import { appendFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -145,7 +147,9 @@ export default Plugin.define({
   id: "contexto",
   async setup(ctx) {
     const root = ctx.location.directory
-    const contextDir = join(root, ".claude", "context")
+    const contextDir = process.env.CONTEXTO_DIR
+      ? join(root, process.env.CONTEXTO_DIR)
+      : join(root, ".claude", "context")
     if (!existsSync(contextDir)) return
 
     const scripts = scriptsDir(root)
@@ -303,6 +307,65 @@ export default Plugin.define({
           const res = await checkJson(args)
           if (!res.ok) return { content: res.text || `check: failed (exit ${res.code})` }
           return { content: render(res.report) }
+        },
+      })
+
+      // promote: write a confirmed finding to LEARNINGS.md (hot), memory/<tag>.md (cold), or BUGS.md
+      // The coordinator calls this after verifying a subagent's finding. Never call from a hook.
+      editor.add({
+        name: "promote",
+        description:
+          "Promote a verified finding to long-term memory. Writes to LEARNINGS.md (short/broad), memory/<tag>.md (long) + pointer, or BUGS.md (literal error). Use after confirming a subagent's finding.",
+        input: {
+          type: "object",
+          properties: {
+            tag: { type: "string", description: "Tag/category (e.g., 'net', 'market', 'ui')" },
+            fact: { type: "string", description: "The finding: what happened, consequence, command that verified it" },
+            verdict: { type: "string", enum: ["✓", "✗", "↻"], description: "✓ kept/works, ✗ rejected/failed, ↻ superseded (date in note)" },
+            note: { type: "string", description: "Optional extra detail (e.g., superseded date, command output)" },
+            target: { type: "string", enum: ["learnings", "memory", "bugs"], description: "Where to write: learnings (default, hot), memory (cold, creates file + pointer), bugs (literal error block)" },
+          },
+          required: ["tag", "fact", "verdict"],
+          additionalProperties: false,
+        },
+        options: { namespace: "contexto", codemode: true },
+        execute: async (input) => {
+          const { tag, fact, verdict, note, target = "learnings" } = input as {
+            tag: string
+            fact: string
+            verdict: "✓" | "✗" | "↻"
+            note?: string
+            target?: "learnings" | "memory" | "bugs"
+          }
+          if (!runner) return { content: "contexto: scripts not found; use the skill's scripts" }
+
+          const date = new Date().toISOString().slice(0, 10)
+          const verdictStr = verdict === "↻" && note ? `↻ ${note}` : verdict
+          const line = `- [${date}] [${tag}] [${verdictStr}] ${fact}`
+
+          if (target === "bugs") {
+            // BUGS.md: one block per bug with literal error
+            const block = `## ${date} — ${tag}\n\n\`\`\`\n${fact}\n\`\`\`\n`
+            await appendFile(join(root, ".claude", "context", "BUGS.md"), block + "\n")
+            return { content: `promoted to BUGS.md:\n${block}` }
+          }
+
+          if (target === "memory") {
+            // memory/<tag>.md: cold storage, create if needed, append entry
+            const memDir = join(root, ".claude", "context", "memory")
+            await runner.raw("mkdir", ["-p", memDir])
+            const memFile = join(memDir, `${tag}.md`)
+            const entry = `${line}\n`
+            await appendFile(memFile, entry)
+            // Also add pointer in LEARNINGS.md
+            const pointer = `- [${date}] [${tag}] → memory/${tag}.md — 1 entry: ${fact.slice(0, 80)}${fact.length > 80 ? "…" : ""}\n`
+            await appendFile(join(root, ".claude", "context", "LEARNINGS.md"), pointer)
+            return { content: `promoted to memory/${tag}.md + pointer in LEARNINGS.md:\n${entry}${pointer}` }
+          }
+
+          // default: LEARNINGS.md (hot)
+          await appendFile(join(root, ".claude", "context", "LEARNINGS.md"), line + "\n")
+          return { content: `promoted to LEARNINGS.md:\n${line}` }
         },
       })
     })

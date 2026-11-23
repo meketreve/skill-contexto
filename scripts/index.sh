@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # index.sh — compact, on-demand index of what the project learned (zero tokens to build).
-# Usage: index.sh [--dir PROJECT] [-x] [-n N] [-l] [--brief] [TERM...]
+# Usage: index.sh [--dir PROJECT] [-x] [-n N] [-l] [--brief] [--json] [TERM...]
 #   no args   table of contents: entries per file and per section, with verdict counts
 #   TERM...   entries whose WHOLE text (all its lines) contains every term, one line each,
 #             newest first — grep finds lines, this finds entries
@@ -8,6 +8,7 @@
 #   -l        list every entry (same as a search that matches all)
 #   -n N      cap the listing (default 20; 0 = no cap)
 #   --brief   wrap the results in a paste-ready block for a subagent brief
+#   --json    single JSON object: {entries:[{date,file,line,section,verdict,summary,text}],...}
 # Reads .claude/context/LEARNINGS*.md, BUGS*.md and memory/*.md — the long-term memory
 # the import policy leaves out on purpose. Never writes anything: printed fresh on every
 # call, so it can't go stale the way a saved index does.
@@ -22,6 +23,7 @@ DIR="."
 REJ=0
 ALL=0
 BRIEF=0
+JSON=0
 CAP=20
 TERMS=""
 
@@ -31,8 +33,9 @@ while [ $# -gt 0 ]; do
     -x) REJ=1; shift ;;
     -l) ALL=1; shift ;;
     --brief) BRIEF=1; shift ;;
+    --json) JSON=1; shift ;;
     -n) CAP="${2:-20}"; shift 2 ;;
-    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) TERMS="$TERMS${TERMS:+ }$1"; shift ;;
   esac
 done
@@ -52,7 +55,7 @@ if [ "${#FILES[@]}" -eq 0 ]; then
 fi
 
 MODE="toc"
-{ [ -n "$TERMS" ] || [ "$REJ" = 1 ] || [ "$ALL" = 1 ] || [ "$BRIEF" = 1 ]; } && MODE="list"
+{ [ -n "$TERMS" ] || [ "$REJ" = 1 ] || [ "$ALL" = 1 ] || [ "$BRIEF" = 1 ] || [ "$JSON" = 1 ]; } && MODE="list"
 
 # One record per entry: date \t file:line \t section \t verdict \t summary \t text
 entries() {
@@ -163,6 +166,27 @@ list_entries() {
       else if (cap > 0 && total > cap) print "… +" (total - cap) " more (-n 0 shows all)"
     }'
 }
+
+list_entries_json() {
+  entries | awk -F '\t' -v terms="$TERMS" -v rej="$REJ" '
+    BEGIN { n = split(tolower(terms), t, " "); first = 1; print "{\"entries\":[" }
+    rej == 1 && $4 != "✗" { next }
+    { for (i = 1; i <= n; i++) if (!index($6, t[i])) next
+      if (first) first = 0; else print ","
+      # escape JSON
+      gsub(/\\\\/, "\\\\\\\\", $0)
+      gsub(/"/, "\\\\\"", $1); gsub(/"/, "\\\\\"", $2); gsub(/"/, "\\\\\"", $3)
+      gsub(/"/, "\\\\\"", $4); gsub(/"/, "\\\\\"", $5); gsub(/"/, "\\\\\"", $6)
+      printf "{\"date\":\"%s\",\"file\":\"%s\",\"section\":\"%s\",\"verdict\":\"%s\",\"summary\":\"%s\",\"text\":\"%s\"}", $1, $2, $3, $4, $5, $6
+    }
+    END { if (first) print "]}"; else print "]}" }
+  '
+}
+
+if [ "$JSON" = 1 ]; then
+  list_entries_json
+  exit 0
+fi
 
 if [ "$BRIEF" = 1 ]; then
   out="$(list_entries)"

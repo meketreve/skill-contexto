@@ -1,7 +1,7 @@
 ---
 updated: YYYY-MM-DD
 tier: 2
----
+checked: AAAA-MM-DD\n---
 
 # Learnings
 
@@ -34,3 +34,4 @@ tier: 2
      Nothing is deleted. The folder is never imported: recall with `index.sh <term>` or `index.sh -x`. -->
 
 - [YYYY-MM-DD] [tag] → memory/tag.md — N entries: gist of what is there
+

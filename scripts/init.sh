@@ -106,7 +106,7 @@ resolve_lang() {
 LANG_N="$(resolve_lang)"
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ "$LANG_N" = "en" ]; then TPL="$SKILL_DIR/templates.en"; else TPL="$SKILL_DIR/templates"; fi
-CTX="$DIR/.claude/context"
+CTX="${CONTEXTO_DIR:-$DIR/.claude/context}"
 TODAY="$(date +%F)"
 
 # Auto-block labels follow the template language.
@@ -263,6 +263,25 @@ stamp_frontmatter() { # file tier
       TIER_COUNT=1
     fi
   fi
+}
+
+# Stamp checked: updates the `checked:` field in frontmatter to current date.
+# Only runs on successful --check (no problems), not on --json.
+stamp_checked() { # ctx_dir
+  local ctx="$1" f tmp
+  for f in "$ctx"/MAP.md "$ctx"/STATUS.md "$ctx"/TODO.md "$ctx"/LEARNINGS.md "$ctx"/BUGS.md "$ctx"/WORKFLOW.md; do
+    [ -f "$f" ] || continue
+    tmp="$(mktemp "${TMPDIR:-/tmp}/init.XXXXXX")"
+    if ! sed "s/^checked: .*/checked: $TODAY/" "$f" > "$tmp"; then
+      rm -f "$tmp"; continue
+    fi
+    # If no checked: line exists, add it after updated: or tier:
+    if ! grep -q '^checked:' "$f"; then
+      sed -e "/^updated: /a checked: $TODAY" -e "/^tier: /a checked: $TODAY" "$f" > "$tmp"
+    fi
+    cat "$tmp" > "$f"
+    rm -f "$tmp"
+  done
 }
 
 # Old format (no frontmatter, or no auto block where the template has one):
@@ -1321,8 +1340,11 @@ check_mode() { # tier
     fi
     return 0
   fi
-  echo "check: $CHECK_BAD problem(s) — nothing was written" >&2
-  return 1
+  # Stamp checked: timestamp in frontmatter of context files when check passes
+  if [ "$CHECK_BAD" = 0 ] && [ "$JSON" != 1 ]; then
+    stamp_checked "$CTX"
+  fi
+  return 0
 }
 
 # --- --dry-run: same decisions as the scaffold, zero writes ---

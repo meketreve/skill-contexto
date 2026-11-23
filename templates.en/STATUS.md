@@ -1,7 +1,7 @@
 ---
 updated: YYYY-MM-DD
 tier: 2
----
+checked: AAAA-MM-DD\n---
 
 # Status — tier 2+
 
@@ -28,3 +28,4 @@ tier: 2
 
 <!-- auto:start -->
 <!-- auto:end -->
+
