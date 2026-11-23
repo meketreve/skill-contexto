@@ -74,14 +74,20 @@ if (process.platform === "win32") {
     command = bash
     label = `${bash} ${argv[0]}`
   } else {
-    command = "wsl.exe"
+    // Use full path to wsl.exe to avoid PATH issues when spawned from Node
+    const wslExe = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "wsl.exe")
+    command = existsSync(wslExe) ? wslExe : "wsl.exe"
     argv = distro ? ["-d", distro, "-e", "bash", ...argv] : ["-e", "bash", ...argv]
     label = `wsl.exe -e bash ${wslPath(script)}`
   }
 }
 
+/** On Windows, keep cwd as Windows path; the script translates its own arguments.
+ *  Passing a WSL path as cwd causes ENOENT because Windows can't resolve it. */
+const spawnCwd = process.cwd()
+
 const result = spawnSync(command, argv, {
-  cwd: process.cwd(),
+  cwd: spawnCwd,
   stdio: "inherit",
   // A cold WSL VM takes seconds; the script itself is fast once it is up.
   timeout: Number(process.env.CONTEXTO_TIMEOUT_MS || 120000),
